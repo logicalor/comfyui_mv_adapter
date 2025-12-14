@@ -52,6 +52,14 @@ class MVAdapterModelSetup:
     the adapter weights for consistent multi-view generation.
     """
     
+    # Available adapters from HuggingFace
+    AVAILABLE_ADAPTERS = {
+        "I2MV SDXL": "huanngzh/mv-adapter/mvadapter_i2mv_sdxl.safetensors",
+        "T2MV SDXL": "huanngzh/mv-adapter/mvadapter_t2mv_sdxl.safetensors",
+        "I2MV SD2.1": "huanngzh/mv-adapter/mvadapter_i2mv_sd21.safetensors",
+        "T2MV SD2.1": "huanngzh/mv-adapter/mvadapter_t2mv_sd21.safetensors",
+    }
+    
     def __init__(self):
         self.device = get_torch_device()
     
@@ -73,6 +81,9 @@ class MVAdapterModelSetup:
                 "adapter_mode": (["i2mv", "t2mv"], {
                     "default": "i2mv",
                 }),
+                "auto_download": ("BOOLEAN", {
+                    "default": True,
+                }),
             },
         }
     
@@ -87,6 +98,7 @@ class MVAdapterModelSetup:
         adapter_path: str,
         num_views: int,
         adapter_mode: str,
+        auto_download: bool = True,
     ) -> Tuple[Any]:
         """Set up MV-Adapter attention processors and load weights."""
         from ..mvadapter.attention import set_mv_adapter_attn_processors
@@ -108,7 +120,7 @@ class MVAdapterModelSetup:
         )
         
         # Load adapter weights
-        adapter_state_dict = self._load_adapter_weights(adapter_path)
+        adapter_state_dict = self._load_adapter_weights(adapter_path, auto_download)
         
         if adapter_state_dict:
             # Load weights into UNet
@@ -133,25 +145,32 @@ class MVAdapterModelSetup:
         
         return (pipeline,)
     
-    def _load_adapter_weights(self, adapter_path: str) -> Dict[str, "torch.Tensor"]:
+    def _load_adapter_weights(self, adapter_path: str, auto_download: bool = True) -> Dict[str, "torch.Tensor"]:
         """Load adapter weights from file or HuggingFace."""
         from safetensors.torch import load_file
         _ensure_imports()
         
         models_dir = get_mvadapter_models_dir()
         
-        # Check if it's a local file
+        # Check if it's a local file in mvadapter models dir
         local_path = os.path.join(models_dir, adapter_path)
         if os.path.exists(local_path):
             print(f"[MV-Adapter] Loading from local: {local_path}")
             return load_file(local_path)
         
+        # Check if it's an absolute/relative path that exists
         if os.path.exists(adapter_path):
             print(f"[MV-Adapter] Loading from path: {adapter_path}")
             return load_file(adapter_path)
         
-        # Try HuggingFace
+        # Try HuggingFace download
         if "/" in adapter_path:
+            if not auto_download:
+                raise ValueError(
+                    f"Adapter '{adapter_path}' not found locally and auto_download is disabled. "
+                    f"Enable auto_download or download manually to: {models_dir}"
+                )
+            
             try:
                 from huggingface_hub import hf_hub_download
                 
@@ -161,20 +180,34 @@ class MVAdapterModelSetup:
                     filename = "/".join(parts[2:])
                     
                     print(f"[MV-Adapter] Downloading from HuggingFace: {repo_id}/{filename}")
+                    print(f"[MV-Adapter] This may take a while on first run...")
                     
                     downloaded_path = hf_hub_download(
                         repo_id=repo_id,
                         filename=filename,
-                        cache_dir=get_mvadapter_models_dir(),
+                        cache_dir=models_dir,
                     )
+                    
+                    print(f"[MV-Adapter] Download complete: {downloaded_path}")
                     
                     from safetensors.torch import load_file
                     return load_file(downloaded_path)
+                else:
+                    raise ValueError(
+                        f"Invalid HuggingFace path format: '{adapter_path}'. "
+                        f"Expected format: 'owner/repo/filename.safetensors'"
+                    )
             except Exception as e:
-                print(f"[MV-Adapter] Error downloading from HuggingFace: {e}")
+                raise RuntimeError(
+                    f"Failed to download adapter from HuggingFace: {e}\n"
+                    f"You can manually download from https://huggingface.co/{adapter_path.rsplit('/', 1)[0]}"
+                ) from e
         
-        print(f"[MV-Adapter] Warning: Could not load adapter from {adapter_path}")
-        return {}
+        raise FileNotFoundError(
+            f"Adapter not found: '{adapter_path}'\n"
+            f"Place adapter files in: {models_dir}\n"
+            f"Or use a HuggingFace path like: huanngzh/mv-adapter/mvadapter_i2mv_sdxl.safetensors"
+        )
 
 
 class MVAdapterLoRALoader:

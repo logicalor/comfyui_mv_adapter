@@ -47,6 +47,14 @@ class MVAdapterPipelineLoader:
     Supports SDXL and SD2.1 base models from HuggingFace or local paths.
     """
     
+    # Common base models for multi-view generation
+    RECOMMENDED_MODELS = [
+        "stabilityai/stable-diffusion-xl-base-1.0",
+        "stabilityai/stable-diffusion-2-1",
+        "Lykon/dreamshaper-xl-1-0",
+        "cagliostrolab/animagine-xl-3.1",
+    ]
+    
     def __init__(self):
         _ensure_imports()
         self.device = get_torch_device()
@@ -65,6 +73,9 @@ class MVAdapterPipelineLoader:
                 }),
                 "torch_dtype": (["float16", "float32", "bfloat16"], {
                     "default": "float16",
+                }),
+                "auto_download": ("BOOLEAN", {
+                    "default": True,
                 }),
             },
             "optional": {
@@ -85,6 +96,7 @@ class MVAdapterPipelineLoader:
         model_path: str,
         model_type: str,
         torch_dtype: str,
+        auto_download: bool = True,
         vae_path: str = "",
     ) -> Tuple[Any, Any]:
         """Load the diffusers pipeline."""
@@ -102,6 +114,18 @@ class MVAdapterPipelineLoader:
             "bfloat16": torch.bfloat16,
         }
         dtype = dtype_map[torch_dtype]
+        
+        # Check if model exists locally or needs download
+        is_hf_model = "/" in model_path and not os.path.exists(model_path)
+        
+        if is_hf_model and not auto_download:
+            raise ValueError(
+                f"Model '{model_path}' not found locally and auto_download is disabled. "
+                f"Enable auto_download or provide a local path."
+            )
+        
+        if is_hf_model and auto_download:
+            print(f"[MV-Adapter] Model will be downloaded from HuggingFace: {model_path}")
         
         # Load VAE if specified
         vae = None
@@ -129,10 +153,17 @@ class MVAdapterPipelineLoader:
         if vae is not None:
             pipeline_kwargs["vae"] = vae
         
-        pipeline = pipeline_cls.from_pretrained(
-            model_path,
-            **pipeline_kwargs,
-        )
+        try:
+            pipeline = pipeline_cls.from_pretrained(
+                model_path,
+                **pipeline_kwargs,
+            )
+        except Exception as e:
+            if "404" in str(e) or "not found" in str(e).lower():
+                raise ValueError(
+                    f"Model '{model_path}' not found. Check the model path or HuggingFace repo name."
+                ) from e
+            raise
         
         # Move to device
         pipeline = pipeline.to(self.device)
