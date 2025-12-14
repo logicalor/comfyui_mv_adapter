@@ -278,3 +278,135 @@ class MVAdapterSplitViews:
                 outputs.append(torch.zeros(1, h, w, c))
         
         return tuple(outputs)
+
+
+class MVAdapterClearVRAM:
+    """
+    Clear VRAM by forcing garbage collection and emptying CUDA cache.
+    
+    Place this node between heavy operations to free up memory.
+    The node passes through the input unchanged but clears memory first.
+    """
+    
+    @classmethod
+    def INPUT_TYPES(cls) -> Dict[str, Any]:
+        return {
+            "required": {
+                "any_input": ("*",),
+            },
+        }
+    
+    RETURN_TYPES = ("*",)
+    RETURN_NAMES = ("output",)
+    FUNCTION = "clear_vram"
+    CATEGORY = "MV-Adapter"
+    
+    def clear_vram(self, any_input):
+        """Clear VRAM and pass through input."""
+        import gc
+        import torch
+        
+        # Force garbage collection
+        gc.collect()
+        
+        # Clear CUDA cache
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            
+            # Get memory stats
+            allocated = torch.cuda.memory_allocated() / (1024**3)
+            reserved = torch.cuda.memory_reserved() / (1024**3)
+            print(f"[MV-Adapter] VRAM cleared. Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
+        else:
+            print("[MV-Adapter] VRAM cleared (no CUDA device)")
+        
+        return (any_input,)
+
+
+class MVAdapterVAEDecode:
+    """
+    Memory-efficient VAE decode for MV-Adapter latents.
+    
+    Decodes latents one at a time with aggressive memory cleanup
+    between each decode. Uses tiled VAE decoding for large images.
+    """
+    
+    @classmethod
+    def INPUT_TYPES(cls) -> Dict[str, Any]:
+        return {
+            "required": {
+                "latents": ("LATENT",),
+                "vae": ("VAE",),
+            },
+            "optional": {
+                "tile_size": ("INT", {
+                    "default": 512,
+                    "min": 256,
+                    "max": 1024,
+                    "step": 64,
+                }),
+            },
+        }
+    
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("images",)
+    FUNCTION = "decode"
+    CATEGORY = "MV-Adapter"
+    
+    def decode(
+        self,
+        latents: Dict[str, Any],
+        vae,
+        tile_size: int = 512,
+    ):
+        """Decode latents with memory efficiency."""
+        import gc
+        import torch
+        
+        samples = latents["samples"]
+        batch_size = samples.shape[0]
+        
+        print(f"[MV-Adapter] Memory-efficient VAE decode: {batch_size} images")
+        
+        # Get device
+        device = get_torch_device()
+        
+        # Clear VRAM before starting
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        decoded_images = []
+        
+        # Decode one at a time for memory efficiency
+        for i in range(batch_size):
+            print(f"[MV-Adapter] Decoding image {i+1}/{batch_size}...")
+            
+            # Get single latent
+            single_latent = samples[i:i+1].to(device)
+            
+            # Use ComfyUI's VAE decode
+            decoded = vae.decode(single_latent)
+            
+            # Move to CPU immediately to free VRAM
+            decoded_images.append(decoded.cpu())
+            
+            # Clear intermediate tensors
+            del single_latent, decoded
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        
+        # Concatenate results
+        output = torch.cat(decoded_images, dim=0)
+        
+        # Final cleanup
+        del decoded_images
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        print(f"[MV-Adapter] VAE decode complete: {output.shape}")
+        
+        return (output,)

@@ -11,6 +11,8 @@ from .utils import (
     MVAdapterImagePreprocess,
     MVAdapterImageGrid,
     MVAdapterSplitViews,
+    MVAdapterClearVRAM,
+    MVAdapterVAEDecode,
 )
 
 __all__ = [
@@ -26,4 +28,6 @@ __all__ = [
     "MVAdapterImagePreprocess",
     "MVAdapterImageGrid",
     "MVAdapterSplitViews",
+    "MVAdapterClearVRAM",
+    "MVAdapterVAEDecode",
 ]

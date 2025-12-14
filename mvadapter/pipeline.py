@@ -86,7 +86,8 @@ def run_mvadapter_pipeline(
     dtype: torch.dtype = torch.float16,
     low_vram_mode: bool = False,
     progress_callback: Optional[callable] = None,
-) -> List[Image.Image]:
+    output_type: str = "pil",
+) -> Union[List[Image.Image], torch.Tensor]:
     """
     Run the MV-Adapter pipeline for multi-view generation.
     
@@ -190,14 +191,27 @@ def run_mvadapter_pipeline(
         "reference_conditioning_scale": reference_conditioning_scale if reference_image is not None else 0.0,
         # Progress callback
         "callback_on_step_end": step_callback if progress_callback is not None else None,
+        # Output type: "pil" for decoded images, "latent" for raw latents
+        "output_type": output_type,
     }
     
     try:
         # Call the MV-Adapter pipeline
         output = pipeline(**kwargs)
         
-        if hasattr(output, 'images'):
-            return output.images
+        # Return based on output type
+        if output_type == "latent":
+            # Return latents directly
+            if hasattr(output, 'latents'):
+                return output.latents
+            elif isinstance(output, tuple) and len(output) > 0:
+                return output[0]  # Latents are first element
+            else:
+                return output
+        else:
+            # Return decoded images
+            if hasattr(output, 'images'):
+                return output.images
         else:
             return output[0]
             

@@ -62,11 +62,15 @@ class MVAdapterI2MVSampler:
                 "low_vram_mode": ("BOOLEAN", {
                     "default": False,
                 }),
+                "output_type": (["images", "latents"], {
+                    "default": "images",
+                    "tooltip": "Output decoded images or raw latents. Use latents to add a Clear VRAM node before VAE decode.",
+                }),
             },
         }
     
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("images",)
+    RETURN_TYPES = ("IMAGE", "LATENT")
+    RETURN_NAMES = ("images", "latents")
     FUNCTION = "sample"
     CATEGORY = "MV-Adapter"
     
@@ -82,6 +86,7 @@ class MVAdapterI2MVSampler:
         seed: int,
         reference_conditioning_scale: float = 1.0,
         low_vram_mode: bool = False,
+        output_type: str = "images",
     ):
         """Generate multi-view images from reference image."""
         import torch
@@ -143,8 +148,11 @@ class MVAdapterI2MVSampler:
         elif hasattr(pipeline, 'unet') and hasattr(pipeline.unet, 'dtype'):
             dtype = pipeline.unet.dtype
         
+        # Determine pipeline output type
+        pipeline_output_type = "latent" if output_type == "latents" else "pil"
+        
         # Run the pipeline
-        output_images = run_mvadapter_pipeline(
+        output = run_mvadapter_pipeline(
             pipeline=pipeline,
             reference_image=ref_pil,
             prompt=prompt,
@@ -161,18 +169,23 @@ class MVAdapterI2MVSampler:
             dtype=dtype,
             low_vram_mode=low_vram_mode,
             progress_callback=progress_callback,
+            output_type=pipeline_output_type,
         )
-        
-        # Convert to ComfyUI tensor format (BHWC)
-        output_tensor = pil_to_tensor(output_images)
         
         # Clean up memory after generation
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         
-        print(f"[MV-Adapter] Generated {len(output_images)} images")
-        
-        return (output_tensor,)
+        if output_type == "latents":
+            # Return latents in ComfyUI format
+            print(f"[MV-Adapter] Generated latents with shape {output.shape}")
+            latent_dict = {"samples": output}
+            return (None, latent_dict)
+        else:
+            # Convert to ComfyUI tensor format (BHWC)
+            output_tensor = pil_to_tensor(output)
+            print(f"[MV-Adapter] Generated {len(output)} images")
+            return (output_tensor, None)
 
 
 class MVAdapterT2MVSampler:
@@ -222,11 +235,15 @@ class MVAdapterT2MVSampler:
                     "default": False,
                     "tooltip": "Enable memory optimizations for GPUs with limited VRAM. May be slower but uses less memory.",
                 }),
+                "output_type": (["images", "latents"], {
+                    "default": "images",
+                    "tooltip": "Output type: 'images' for decoded images, 'latents' for raw latents (use with MVAdapterVAEDecode)",
+                }),
             },
         }
     
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("images",)
+    RETURN_TYPES = ("IMAGE", "LATENT")
+    RETURN_NAMES = ("images", "latents")
     FUNCTION = "sample"
     CATEGORY = "MV-Adapter"
     
@@ -240,6 +257,7 @@ class MVAdapterT2MVSampler:
         guidance_scale: float,
         seed: int,
         low_vram_mode: bool = False,
+        output_type: str = "images",
     ):
         """Generate multi-view images from text prompt."""
         import torch
@@ -297,7 +315,7 @@ class MVAdapterT2MVSampler:
             dtype = pipeline.unet.dtype
         
         # Run the pipeline (no reference image for T2MV)
-        output_images = run_mvadapter_pipeline(
+        output = run_mvadapter_pipeline(
             pipeline=pipeline,
             reference_image=None,
             prompt=prompt,
@@ -314,15 +332,21 @@ class MVAdapterT2MVSampler:
             dtype=dtype,
             low_vram_mode=low_vram_mode,
             progress_callback=progress_callback,
+            output_type="latent" if output_type == "latents" else "pil",
         )
-        
-        # Convert to ComfyUI tensor format (BHWC)
-        output_tensor = pil_to_tensor(output_images)
         
         # Clean up memory after generation
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         
-        print(f"[MV-Adapter] Generated {len(output_images)} images")
-        
-        return (output_tensor,)
+        # Handle output based on type
+        if output_type == "latents":
+            # Return latents in ComfyUI format
+            print(f"[MV-Adapter] Generated latents with shape {output.shape}")
+            latent_dict = {"samples": output}
+            return (None, latent_dict)
+        else:
+            # Convert to ComfyUI tensor format (BHWC)
+            output_tensor = pil_to_tensor(output)
+            print(f"[MV-Adapter] Generated {len(output)} images")
+            return (output_tensor, None)

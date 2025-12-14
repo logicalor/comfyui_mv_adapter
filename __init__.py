@@ -24,6 +24,8 @@ try:
         MVAdapterImagePreprocess,
         MVAdapterImageGrid,
         MVAdapterSplitViews,
+        MVAdapterClearVRAM,
+        MVAdapterVAEDecode,
     )
 
     # Node class mappings for ComfyUI
@@ -40,6 +42,8 @@ try:
         "MVAdapterImagePreprocess": MVAdapterImagePreprocess,
         "MVAdapterImageGrid": MVAdapterImageGrid,
         "MVAdapterSplitViews": MVAdapterSplitViews,
+        "MVAdapterClearVRAM": MVAdapterClearVRAM,
+        "MVAdapterVAEDecode": MVAdapterVAEDecode,
     }
 
     # Display names for nodes in ComfyUI UI
@@ -56,6 +60,8 @@ try:
         "MVAdapterImagePreprocess": "MV-Adapter Image Preprocess",
         "MVAdapterImageGrid": "MV-Adapter Image Grid",
         "MVAdapterSplitViews": "MV-Adapter Split Views",
+        "MVAdapterClearVRAM": "MV-Adapter Clear VRAM",
+        "MVAdapterVAEDecode": "MV-Adapter VAE Decode",
     }
 
 except Exception as e:
