@@ -1,5 +1,5 @@
-torch>=2.0
-torchvision
+# Note: torch and torchvision are NOT included here
+# ComfyUI already provides them configured for your hardware (CUDA/ROCm/CPU)
 diffusers>=0.25.0,<0.31.0
 transformers>=4.35.0
 accelerate>=0.24.0
