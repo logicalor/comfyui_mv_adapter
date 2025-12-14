@@ -100,54 +100,50 @@ class MVAdapterModelSetup:
         adapter_mode: str,
         auto_download: bool = True,
     ) -> Tuple[Any]:
-        """Set up MV-Adapter attention processors and load weights."""
-        from ..mvadapter.attention import set_mv_adapter_attn_processors
+        """Set up MV-Adapter using the official init_custom_adapter and load_custom_adapter methods."""
+        _ensure_imports()
         
-        # Determine base image size from pipeline config
+        # Import the attention processor from MV-Adapter
         try:
-            sample_size = pipeline.unet.config.sample_size
-            base_img_size = sample_size  # 64 for SD, 96 for SDXL at 768px
-        except:
-            base_img_size = 96  # Default for SDXL
+            from mvadapter.models.attention_processor import DecoupledMVRowSelfAttnProcessor2_0
+        except ImportError as e:
+            raise ImportError(
+                "MV-Adapter package not found. Install with:\n"
+                "pip install git+https://github.com/huanngzh/MV-Adapter.git"
+            ) from e
         
-        print(f"[MV-Adapter] Setting up adapter with {num_views} views, base size {base_img_size}")
+        print(f"[MV-Adapter] Initializing adapter with {num_views} views")
         
-        # Set attention processors
-        set_mv_adapter_attn_processors(
-            pipeline.unet,
-            num_views=num_views,
-            base_img_size=base_img_size,
-        )
+        # Initialize the custom adapter (sets up cond_encoder and attention processors)
+        pipeline.init_custom_adapter(num_views=num_views)
         
-        # Load adapter weights
-        adapter_state_dict = self._load_adapter_weights(adapter_path, auto_download)
+        # Resolve and download adapter weights path
+        adapter_file_path = self._resolve_adapter_path(adapter_path, auto_download)
         
-        if adapter_state_dict:
-            # Load weights into UNet
-            missing, unexpected = pipeline.unet.load_state_dict(
-                adapter_state_dict,
-                strict=False,
-            )
+        # Load adapter weights using official method
+        if adapter_file_path:
+            adapter_dir = os.path.dirname(adapter_file_path)
+            adapter_filename = os.path.basename(adapter_file_path)
             
-            if missing:
-                print(f"[MV-Adapter] Missing keys: {len(missing)}")
-            if unexpected:
-                print(f"[MV-Adapter] Unexpected keys: {len(unexpected)}")
-            
-            print(f"[MV-Adapter] Adapter weights loaded from {adapter_path}")
+            print(f"[MV-Adapter] Loading adapter weights: {adapter_filename}")
+            pipeline.load_custom_adapter(adapter_dir, weight_name=adapter_filename)
+            print(f"[MV-Adapter] Adapter weights loaded successfully")
+        
+        # Move cond_encoder to device and dtype
+        if hasattr(pipeline, 'cond_encoder'):
+            pipeline.cond_encoder.to(device=self.device, dtype=pipeline.dtype)
+            print(f"[MV-Adapter] cond_encoder moved to {self.device}")
         
         # Store config for sampler
         pipeline._mvadapter_config = {
             "num_views": num_views,
             "adapter_mode": adapter_mode,
-            "base_img_size": base_img_size,
         }
         
         return (pipeline,)
     
-    def _load_adapter_weights(self, adapter_path: str, auto_download: bool = True) -> Dict[str, "torch.Tensor"]:
-        """Load adapter weights from file or HuggingFace."""
-        from safetensors.torch import load_file
+    def _resolve_adapter_path(self, adapter_path: str, auto_download: bool = True) -> str:
+        """Resolve adapter path - download from HuggingFace if needed."""
         _ensure_imports()
         
         models_dir = get_mvadapter_models_dir()
@@ -155,13 +151,13 @@ class MVAdapterModelSetup:
         # Check if it's a local file in mvadapter models dir
         local_path = os.path.join(models_dir, adapter_path)
         if os.path.exists(local_path):
-            print(f"[MV-Adapter] Loading from local: {local_path}")
-            return load_file(local_path)
+            print(f"[MV-Adapter] Using local adapter: {local_path}")
+            return local_path
         
         # Check if it's an absolute/relative path that exists
         if os.path.exists(adapter_path):
-            print(f"[MV-Adapter] Loading from path: {adapter_path}")
-            return load_file(adapter_path)
+            print(f"[MV-Adapter] Using adapter at: {adapter_path}")
+            return adapter_path
         
         # Try HuggingFace download
         if "/" in adapter_path:
@@ -189,9 +185,7 @@ class MVAdapterModelSetup:
                     )
                     
                     print(f"[MV-Adapter] Download complete: {downloaded_path}")
-                    
-                    from safetensors.torch import load_file
-                    return load_file(downloaded_path)
+                    return downloaded_path
                 else:
                     raise ValueError(
                         f"Invalid HuggingFace path format: '{adapter_path}'. "

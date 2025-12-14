@@ -10,3 +10,6 @@ numpy
 opencv-python
 einops
 rembg
+
+# MV-Adapter from official repository
+git+https://github.com/huanngzh/MV-Adapter.git

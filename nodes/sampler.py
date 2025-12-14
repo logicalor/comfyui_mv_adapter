@@ -71,7 +71,7 @@ class MVAdapterI2MVSampler:
         self,
         pipeline,
         camera_embed: Dict[str, Any],
-        reference_image,  # torch.Tensor
+        reference_image,  # torch.Tensor in BHWC format
         prompt: str,
         negative_prompt: str,
         steps: int,
@@ -83,7 +83,7 @@ class MVAdapterI2MVSampler:
         import torch
         from PIL import Image
         from ..utils.image_utils import tensor_to_pil, pil_to_tensor
-        from ..utils.camera_utils import prepare_camera_embed_for_pipeline
+        from ..mvadapter.pipeline import run_mvadapter_pipeline
         
         # Get config from pipeline
         config = getattr(pipeline, "_mvadapter_config", {})
@@ -93,67 +93,47 @@ class MVAdapterI2MVSampler:
         ref_pil_list = tensor_to_pil(reference_image)
         ref_pil = ref_pil_list[0]  # Use first image if batch
         
-        # Resize reference to match generation size
+        # Get dimensions from camera embed
         width = camera_embed["width"]
         height = camera_embed["height"]
-        ref_pil = ref_pil.resize((width, height), Image.Resampling.LANCZOS)
         
-        # Prepare camera embeddings
-        plucker_embeds = camera_embed["embeddings"]
-        control_images = prepare_camera_embed_for_pipeline(
-            plucker_embeds,
-            device=self.device,
-            dtype=pipeline.dtype if hasattr(pipeline, "dtype") else torch.float16,
-        )
+        # Prepare camera embeddings - convert from NHWC to NCHW
+        plucker_embeds = camera_embed["embeddings"]  # [N, H, W, 6]
+        control_images = plucker_embeds.permute(0, 3, 1, 2)  # [N, 6, H, W]
+        control_images = control_images.to(device=self.device)
         
         # Set random seed
         generator = torch.Generator(device=self.device).manual_seed(seed)
         
-        # Prepare prompts for each view
-        prompts = [prompt] * num_views
-        negative_prompts = [negative_prompt] * num_views
-        
         print(f"[MV-Adapter] Generating {num_views} views at {width}x{height}")
         print(f"[MV-Adapter] Steps: {steps}, CFG: {guidance_scale}, Seed: {seed}")
         
-        # Generate images
-        # Note: The actual generation depends on the pipeline implementation
-        # For now, we'll do a simplified version
+        # Determine dtype from pipeline
+        dtype = torch.float16
+        if hasattr(pipeline, 'dtype'):
+            dtype = pipeline.dtype
+        elif hasattr(pipeline, 'unet') and hasattr(pipeline.unet, 'dtype'):
+            dtype = pipeline.unet.dtype
         
-        try:
-            # Try using the pipeline's __call__ method with control images
-            output = pipeline(
-                prompt=prompts,
-                negative_prompt=negative_prompts,
-                image=control_images,  # Camera embeddings as control
-                num_inference_steps=steps,
-                guidance_scale=guidance_scale,
-                generator=generator,
-                height=height,
-                width=width,
-            )
-            
-            output_images = output.images
-            
-        except Exception as e:
-            print(f"[MV-Adapter] Pipeline call failed: {e}")
-            print("[MV-Adapter] Falling back to basic generation...")
-            
-            # Fallback: generate individual views
-            output_images = []
-            for i in range(num_views):
-                output = pipeline(
-                    prompt=prompt,
-                    negative_prompt=negative_prompt,
-                    num_inference_steps=steps,
-                    guidance_scale=guidance_scale,
-                    generator=generator,
-                    height=height,
-                    width=width,
-                )
-                output_images.append(output.images[0])
+        # Run the pipeline
+        output_images = run_mvadapter_pipeline(
+            pipeline=pipeline,
+            reference_image=ref_pil,
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            control_images=control_images,
+            num_views=num_views,
+            height=height,
+            width=width,
+            num_inference_steps=steps,
+            guidance_scale=guidance_scale,
+            generator=generator,
+            reference_conditioning_scale=reference_conditioning_scale,
+            device=self.device,
+            dtype=dtype,
+        )
         
-        # Convert to ComfyUI tensor format
+        # Convert to ComfyUI tensor format (BHWC)
         output_tensor = pil_to_tensor(output_images)
         
         print(f"[MV-Adapter] Generated {len(output_images)} images")
@@ -223,7 +203,7 @@ class MVAdapterT2MVSampler:
         """Generate multi-view images from text prompt."""
         import torch
         from ..utils.image_utils import pil_to_tensor
-        from ..utils.camera_utils import prepare_camera_embed_for_pipeline
+        from ..mvadapter.pipeline import run_mvadapter_pipeline
         
         # Get config from pipeline
         config = getattr(pipeline, "_mvadapter_config", {})
@@ -233,57 +213,43 @@ class MVAdapterT2MVSampler:
         width = camera_embed["width"]
         height = camera_embed["height"]
         
-        # Prepare camera embeddings
-        plucker_embeds = camera_embed["embeddings"]
-        control_images = prepare_camera_embed_for_pipeline(
-            plucker_embeds,
-            device=self.device,
-            dtype=pipeline.dtype if hasattr(pipeline, "dtype") else torch.float16,
-        )
+        # Prepare camera embeddings - convert from NHWC to NCHW
+        plucker_embeds = camera_embed["embeddings"]  # [N, H, W, 6]
+        control_images = plucker_embeds.permute(0, 3, 1, 2)  # [N, 6, H, W]
+        control_images = control_images.to(device=self.device)
         
         # Set random seed
         generator = torch.Generator(device=self.device).manual_seed(seed)
         
-        # Prepare prompts for each view
-        prompts = [prompt] * num_views
-        negative_prompts = [negative_prompt] * num_views
-        
         print(f"[MV-Adapter] Generating {num_views} views at {width}x{height}")
         print(f"[MV-Adapter] Steps: {steps}, CFG: {guidance_scale}, Seed: {seed}")
         
-        # Generate images
-        try:
-            output = pipeline(
-                prompt=prompts,
-                negative_prompt=negative_prompts,
-                image=control_images,
-                num_inference_steps=steps,
-                guidance_scale=guidance_scale,
-                generator=generator,
-                height=height,
-                width=width,
-            )
-            
-            output_images = output.images
-            
-        except Exception as e:
-            print(f"[MV-Adapter] Pipeline call failed: {e}")
-            print("[MV-Adapter] Falling back to basic generation...")
-            
-            output_images = []
-            for i in range(num_views):
-                output = pipeline(
-                    prompt=prompt,
-                    negative_prompt=negative_prompt,
-                    num_inference_steps=steps,
-                    guidance_scale=guidance_scale,
-                    generator=generator,
-                    height=height,
-                    width=width,
-                )
-                output_images.append(output.images[0])
+        # Determine dtype from pipeline
+        dtype = torch.float16
+        if hasattr(pipeline, 'dtype'):
+            dtype = pipeline.dtype
+        elif hasattr(pipeline, 'unet') and hasattr(pipeline.unet, 'dtype'):
+            dtype = pipeline.unet.dtype
         
-        # Convert to ComfyUI tensor format
+        # Run the pipeline (no reference image for T2MV)
+        output_images = run_mvadapter_pipeline(
+            pipeline=pipeline,
+            reference_image=None,
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            control_images=control_images,
+            num_views=num_views,
+            height=height,
+            width=width,
+            num_inference_steps=steps,
+            guidance_scale=guidance_scale,
+            generator=generator,
+            reference_conditioning_scale=0.0,
+            device=self.device,
+            dtype=dtype,
+        )
+        
+        # Convert to ComfyUI tensor format (BHWC)
         output_tensor = pil_to_tensor(output_images)
         
         print(f"[MV-Adapter] Generated {len(output_images)} images")

@@ -99,12 +99,19 @@ class MVAdapterPipelineLoader:
         auto_download: bool = True,
         vae_path: str = "",
     ) -> Tuple[Any, Any]:
-        """Load the diffusers pipeline."""
-        from diffusers import (
-            StableDiffusionXLPipeline,
-            StableDiffusionPipeline,
-            AutoencoderKL,
-        )
+        """Load the diffusers pipeline using MV-Adapter's custom pipeline classes."""
+        from diffusers import AutoencoderKL
+        
+        # Import MV-Adapter pipeline classes
+        try:
+            from mvadapter.pipelines.pipeline_mvadapter_i2mv_sdxl import MVAdapterI2MVSDXLPipeline
+            from mvadapter.pipelines.pipeline_mvadapter_i2mv_sd import MVAdapterI2MVSDPipeline
+        except ImportError as e:
+            raise ImportError(
+                "MV-Adapter package not found. Install with:\n"
+                "pip install git+https://github.com/huanngzh/MV-Adapter.git"
+            ) from e
+        
         _ensure_imports()
         
         # Set dtype
@@ -138,12 +145,12 @@ class MVAdapterPipelineLoader:
         
         # Select pipeline class based on model type
         if model_type == "SDXL":
-            pipeline_cls = StableDiffusionXLPipeline
+            pipeline_cls = MVAdapterI2MVSDXLPipeline
         else:
-            pipeline_cls = StableDiffusionPipeline
+            pipeline_cls = MVAdapterI2MVSDPipeline
         
         # Load pipeline
-        print(f"[MV-Adapter] Loading pipeline from {model_path}")
+        print(f"[MV-Adapter] Loading MV-Adapter pipeline from {model_path}")
         
         pipeline_kwargs = {
             "torch_dtype": dtype,
@@ -173,7 +180,7 @@ class MVAdapterPipelineLoader:
         if hasattr(pipeline, "enable_vae_tiling"):
             pipeline.enable_vae_tiling()
         
-        print(f"[MV-Adapter] Pipeline loaded successfully on {self.device}")
+        print(f"[MV-Adapter] MV-Adapter pipeline loaded successfully on {self.device}")
         
         return (pipeline, pipeline.vae)
 

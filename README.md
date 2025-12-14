@@ -9,6 +9,7 @@ Custom nodes for [MV-Adapter](https://github.com/huanngzh/MV-Adapter) integratio
 - **Configurable camera angles**: Control azimuth/elevation for each view
 - **Background removal**: Built-in preprocessing for reference images
 - **SDXL & SD2.1 support**: Works with both model architectures
+- **Uses official MV-Adapter**: Directly integrates the official MV-Adapter pipeline classes
 
 ## Installation
 
@@ -23,12 +24,14 @@ Custom nodes for [MV-Adapter](https://github.com/huanngzh/MV-Adapter) integratio
    cd comfyui-mvadapter
    pip install -r requirements.txt
    ```
+   
+   This will install the official MV-Adapter package from GitHub along with other required dependencies.
 
-3. Download MV-Adapter weights from [HuggingFace](https://huggingface.co/huanngzh/mv-adapter):
+3. The adapter weights will be automatically downloaded from [HuggingFace](https://huggingface.co/huanngzh/mv-adapter) on first use.
+   
+   Alternatively, download manually and place in `ComfyUI/models/mvadapter/`:
    - `mvadapter_i2mv_sdxl.safetensors` for Image-to-Multiview (SDXL)
    - `mvadapter_t2mv_sdxl.safetensors` for Text-to-Multiview (SDXL)
-   
-   Place them in `ComfyUI/models/mvadapter/`
 
 ## Nodes
 
