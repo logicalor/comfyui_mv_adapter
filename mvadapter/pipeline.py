@@ -86,9 +86,10 @@ def run_mvadapter_pipeline(
     dtype: torch.dtype = torch.float16,
 ) -> List[Image.Image]:
     """
-    Run the official MV-Adapter pipeline for multi-view generation.
+    Run the MV-Adapter pipeline for multi-view generation.
     
     This calls the pipeline's __call__ method with the correct parameters.
+    Works with both I2MV (Image-to-Multi-View) and T2MV (Text-to-Multi-View) modes.
     """
     if device is None:
         device = pipeline.device if hasattr(pipeline, 'device') else torch.device("cuda")
@@ -97,18 +98,23 @@ def run_mvadapter_pipeline(
     ref_image = None
     if reference_image is not None:
         ref_image = prepare_reference_image(reference_image, height, width)
+    else:
+        # For T2MV mode, create a blank reference image
+        # The pipeline still needs one but it won't be used much
+        ref_image = Image.new("RGB", (width, height), color=(128, 128, 128))
     
     # Prepare control images (camera embeddings)
     # control_images should be [num_views, 6, H, W] in NCHW format
     control_images = control_images.to(device=device, dtype=dtype)
     
     print(f"[MV-Adapter Pipeline] Running inference:")
+    print(f"  - mode: {'I2MV' if reference_image is not None else 'T2MV'}")
     print(f"  - num_views (num_images_per_prompt): {num_views}")
     print(f"  - height x width: {height} x {width}")
     print(f"  - num_inference_steps: {num_inference_steps}")
     print(f"  - guidance_scale: {guidance_scale}")
     print(f"  - control_images shape: {control_images.shape}")
-    if ref_image:
+    if reference_image is not None:
         print(f"  - reference_image: {ref_image.size}")
         print(f"  - reference_conditioning_scale: {reference_conditioning_scale}")
     
@@ -127,15 +133,12 @@ def run_mvadapter_pipeline(
         "control_image": control_images,
         "control_conditioning_scale": 1.0,
         "mv_scale": 1.0,
+        "reference_image": ref_image,
+        "reference_conditioning_scale": reference_conditioning_scale if reference_image is not None else 0.0,
     }
     
-    # Add reference image if provided (for I2MV mode)
-    if ref_image is not None:
-        kwargs["reference_image"] = ref_image
-        kwargs["reference_conditioning_scale"] = reference_conditioning_scale
-    
     try:
-        # Call the official MV-Adapter pipeline
+        # Call the MV-Adapter pipeline
         output = pipeline(**kwargs)
         
         if hasattr(output, 'images'):

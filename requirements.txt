@@ -11,5 +11,8 @@ opencv-python
 einops
 rembg
 
-# MV-Adapter from official repository
-git+https://github.com/huanngzh/MV-Adapter.git
+# Additional dependencies for MV-Adapter functionality
+# (We bundle the MV-Adapter pipeline code directly to avoid torch reinstall)
+peft
+omegaconf
+controlnet_aux

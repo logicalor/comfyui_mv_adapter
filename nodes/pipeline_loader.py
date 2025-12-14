@@ -99,18 +99,11 @@ class MVAdapterPipelineLoader:
         auto_download: bool = True,
         vae_path: str = "",
     ) -> Tuple[Any, Any]:
-        """Load the diffusers pipeline using MV-Adapter's custom pipeline classes."""
+        """Load the MV-Adapter pipeline."""
         from diffusers import AutoencoderKL
         
-        # Import MV-Adapter pipeline classes
-        try:
-            from mvadapter.pipelines.pipeline_mvadapter_i2mv_sdxl import MVAdapterI2MVSDXLPipeline
-            from mvadapter.pipelines.pipeline_mvadapter_i2mv_sd import MVAdapterI2MVSDPipeline
-        except ImportError as e:
-            raise ImportError(
-                "MV-Adapter package not found. Install with:\n"
-                "pip install git+https://github.com/huanngzh/MV-Adapter.git"
-            ) from e
+        # Import our bundled MV-Adapter pipeline
+        from ..mvadapter.pipelines import MVAdapterI2MVSDXLPipeline
         
         _ensure_imports()
         
@@ -144,10 +137,14 @@ class MVAdapterPipelineLoader:
             )
         
         # Select pipeline class based on model type
+        # Currently only SDXL is supported with bundled pipeline
         if model_type == "SDXL":
             pipeline_cls = MVAdapterI2MVSDXLPipeline
         else:
-            pipeline_cls = MVAdapterI2MVSDPipeline
+            # For SD2.1, fall back to standard pipeline (TODO: bundle SD2.1 pipeline)
+            from diffusers import StableDiffusionPipeline
+            pipeline_cls = StableDiffusionPipeline
+            print(f"[MV-Adapter] Warning: SD2.1 uses standard pipeline without MV-Adapter features")
         
         # Load pipeline
         print(f"[MV-Adapter] Loading MV-Adapter pipeline from {model_path}")
@@ -180,7 +177,7 @@ class MVAdapterPipelineLoader:
         if hasattr(pipeline, "enable_vae_tiling"):
             pipeline.enable_vae_tiling()
         
-        print(f"[MV-Adapter] MV-Adapter pipeline loaded successfully on {self.device}")
+        print(f"[MV-Adapter] Pipeline loaded successfully on {self.device}")
         
         return (pipeline, pipeline.vae)
 

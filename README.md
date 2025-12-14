@@ -8,8 +8,8 @@ Custom nodes for [MV-Adapter](https://github.com/huanngzh/MV-Adapter) integratio
 - **Image-to-Multiview**: Generate multiple views from a single reference image
 - **Configurable camera angles**: Control azimuth/elevation for each view
 - **Background removal**: Built-in preprocessing for reference images
-- **SDXL & SD2.1 support**: Works with both model architectures
-- **Uses official MV-Adapter**: Directly integrates the official MV-Adapter pipeline classes
+- **SDXL support**: Works with SDXL model architecture
+- **Bundled MV-Adapter code**: No separate MV-Adapter installation required
 
 ## Installation
 
@@ -25,7 +25,7 @@ Custom nodes for [MV-Adapter](https://github.com/huanngzh/MV-Adapter) integratio
    pip install -r requirements.txt
    ```
    
-   This will install the official MV-Adapter package from GitHub along with other required dependencies.
+   **Note for ROCm/AMD users**: The requirements.txt intentionally excludes `torch` and `torchvision` to avoid overwriting your ROCm-configured PyTorch installation. Make sure you have PyTorch properly configured for your hardware before installing.
 
 3. The adapter weights will be automatically downloaded from [HuggingFace](https://huggingface.co/huanngzh/mv-adapter) on first use.
    
@@ -36,7 +36,7 @@ Custom nodes for [MV-Adapter](https://github.com/huanngzh/MV-Adapter) integratio
 ## Nodes
 
 ### MVAdapterPipelineLoader
-Loads the base diffusion model pipeline (SDXL or SD2.1).
+Loads the base diffusion model pipeline (SDXL).
 
 ### MVAdapterModelSetup
 Initializes MV-Adapter attention processors and loads adapter weights.

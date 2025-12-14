@@ -100,17 +100,11 @@ class MVAdapterModelSetup:
         adapter_mode: str,
         auto_download: bool = True,
     ) -> Tuple[Any]:
-        """Set up MV-Adapter using the official init_custom_adapter and load_custom_adapter methods."""
+        """Set up MV-Adapter using the init_custom_adapter and load_custom_adapter methods."""
         _ensure_imports()
         
-        # Import the attention processor from MV-Adapter
-        try:
-            from mvadapter.models.attention_processor import DecoupledMVRowSelfAttnProcessor2_0
-        except ImportError as e:
-            raise ImportError(
-                "MV-Adapter package not found. Install with:\n"
-                "pip install git+https://github.com/huanngzh/MV-Adapter.git"
-            ) from e
+        # Import the attention processor from our bundled code
+        from ..mvadapter.attention import DecoupledMVRowSelfAttnProcessor2_0
         
         print(f"[MV-Adapter] Initializing adapter with {num_views} views")
         
