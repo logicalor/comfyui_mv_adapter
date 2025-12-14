@@ -662,24 +662,51 @@ class MVAdapterI2MVSDXLPipeline(StableDiffusionXLPipeline, CustomAdapterMixin):
                 del negative_add_time_ids
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+                torch.cuda.synchronize()  # Ensure all operations complete before continuing
             print(f"[MV-Adapter] Starting VAE decode for {latents.shape[0]} images...")
 
+            # Enable VAE tiling for memory efficiency - tile size of 512 works well
+            if hasattr(self.vae, 'enable_tiling'):
+                self.vae.enable_tiling(tile_sample_min_size=512)
+            
             # Memory-efficient VAE decode: decode one image at a time to reduce peak memory
             # This is crucial for multi-view generation where we have many latents
             if latents.shape[0] > 1:
                 images = []
                 for i in range(latents.shape[0]):
+                    # Clear fragmented memory before each decode
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    
                     single_latent = latents[i:i+1]
-                    single_image = self.vae.decode(single_latent, return_dict=False)[0]
+                    
+                    # Use tiled decode if available, otherwise regular decode
+                    if hasattr(self.vae, 'tiled_decode'):
+                        single_image = self.vae.tiled_decode(single_latent, return_dict=False)[0]
+                    else:
+                        single_image = self.vae.decode(single_latent, return_dict=False)[0]
+                    
                     images.append(single_image.cpu())  # Move to CPU immediately to free GPU memory
                     del single_image
+                    del single_latent
                     # Clear cache between decodes
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
+                    print(f"[MV-Adapter] Decoded image {i+1}/{latents.shape[0]}")
+                
+                # Free the latents now that we're done with them
+                del latents
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    
                 image = torch.cat(images, dim=0).to(device=device)
                 del images
             else:
-                image = self.vae.decode(latents, return_dict=False)[0]
+                # Single image - use tiled decode if available
+                if hasattr(self.vae, 'tiled_decode'):
+                    image = self.vae.tiled_decode(latents, return_dict=False)[0]
+                else:
+                    image = self.vae.decode(latents, return_dict=False)[0]
 
             if needs_upcasting:
                 self.vae.to(dtype=torch.float16)

@@ -26,6 +26,11 @@ Custom nodes for [MV-Adapter](https://github.com/huanngzh/MV-Adapter) integratio
    ```
    
    **Note for ROCm/AMD users**: The requirements.txt intentionally excludes `torch` and `torchvision` to avoid overwriting your ROCm-configured PyTorch installation. Make sure you have PyTorch properly configured for your hardware before installing.
+   
+   **Memory optimization for AMD/HIP**: If you encounter out-of-memory errors during VAE decode, try setting this environment variable to reduce memory fragmentation:
+   ```bash
+   export PYTORCH_HIP_ALLOC_CONF=expandable_segments:True
+   ```
 
 3. The adapter weights will be automatically downloaded from [HuggingFace](https://huggingface.co/huanngzh/mv-adapter) on first use.
    
