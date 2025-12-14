@@ -285,24 +285,24 @@ class MVAdapterClearVRAM:
     Clear VRAM by forcing garbage collection and emptying CUDA cache.
     
     Place this node between heavy operations to free up memory.
-    The node passes through the input unchanged but clears memory first.
+    The node passes through the LATENT input unchanged but clears memory first.
     """
     
     @classmethod
     def INPUT_TYPES(cls) -> Dict[str, Any]:
         return {
             "required": {
-                "any_input": ("*",),
+                "latents": ("LATENT",),
             },
         }
     
-    RETURN_TYPES = ("*",)
-    RETURN_NAMES = ("output",)
+    RETURN_TYPES = ("LATENT",)
+    RETURN_NAMES = ("latents",)
     FUNCTION = "clear_vram"
     CATEGORY = "MV-Adapter"
     
-    def clear_vram(self, any_input):
-        """Clear VRAM and pass through input."""
+    def clear_vram(self, latents):
+        """Clear VRAM and pass through latents."""
         import gc
         import torch
         
@@ -321,7 +321,7 @@ class MVAdapterClearVRAM:
         else:
             print("[MV-Adapter] VRAM cleared (no CUDA device)")
         
-        return (any_input,)
+        return (latents,)
 
 
 class MVAdapterVAEDecode:
