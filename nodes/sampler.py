@@ -108,27 +108,27 @@ class MVAdapterI2MVSampler:
                 torch.cuda.empty_cache()
         
         # Get config from pipeline
-        config = getattr(pipeline, \"_mvadapter_config\", {})
-        num_views = config.get(\"num_views\", camera_embed[\"num_views\"])
+        config = getattr(pipeline, "_mvadapter_config", {})
+        num_views = config.get("num_views", camera_embed["num_views"])
         
         # Convert reference image to PIL
         ref_pil_list = tensor_to_pil(reference_image)
         ref_pil = ref_pil_list[0]  # Use first image if batch
         
         # Get dimensions from camera embed
-        width = camera_embed[\"width\"]
-        height = camera_embed[\"height\"]
+        width = camera_embed["width"]
+        height = camera_embed["height"]
         
         # Prepare camera embeddings - convert from NHWC to NCHW
-        plucker_embeds = camera_embed[\"embeddings\"]  # [N, H, W, 6]
+        plucker_embeds = camera_embed["embeddings"]  # [N, H, W, 6]
         control_images = plucker_embeds.permute(0, 3, 1, 2)  # [N, 6, H, W]
         control_images = control_images.to(device=self.device)
         
         # Set random seed
         generator = torch.Generator(device=self.device).manual_seed(seed)
         
-        print(f\"[MV-Adapter] Generating {num_views} views at {width}x{height}\")
-        print(f\"[MV-Adapter] Steps: {steps}, CFG: {guidance_scale}, Seed: {seed}\")
+        print(f"[MV-Adapter] Generating {num_views} views at {width}x{height}")
+        print(f"[MV-Adapter] Steps: {steps}, CFG: {guidance_scale}, Seed: {seed}")
         if low_vram_mode:
             print(f"[MV-Adapter] Low VRAM mode: ON")
         
@@ -155,7 +155,9 @@ class MVAdapterI2MVSampler:
             reference_conditioning_scale=reference_conditioning_scale,
             device=self.device,
             dtype=dtype,
-            low_vram_mode=low_vram_mode,            progress_callback=progress_callback,        )
+            low_vram_mode=low_vram_mode,
+            progress_callback=progress_callback,
+        )
         
         # Convert to ComfyUI tensor format (BHWC)
         output_tensor = pil_to_tensor(output_images)
@@ -164,7 +166,7 @@ class MVAdapterI2MVSampler:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         
-        print(f\"[MV-Adapter] Generated {len(output_images)} images\")
+        print(f"[MV-Adapter] Generated {len(output_images)} images")
         
         return (output_tensor,)
 
