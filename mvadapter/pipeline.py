@@ -105,9 +105,8 @@ def run_mvadapter_pipeline(
         # Enable VAE slicing to decode one image at a time
         if hasattr(pipeline, 'enable_vae_slicing'):
             pipeline.enable_vae_slicing()
-        # More aggressive attention slicing
-        if hasattr(pipeline, 'enable_attention_slicing'):
-            pipeline.enable_attention_slicing(1)  # Maximum slicing
+        # NOTE: Do NOT enable_attention_slicing - it replaces MV-Adapter's custom attention processors
+        # and breaks reference image conditioning!
         # Clear cache before inference
         if torch.cuda.is_available():
             torch.cuda.empty_cache()

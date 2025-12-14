@@ -172,12 +172,11 @@ class MVAdapterPipelineLoader:
         # Move to device
         pipeline = pipeline.to(self.device)
         
-        # Enable memory optimizations
+        # Enable memory optimizations (VAE only - attention slicing breaks MV-Adapter)
         pipeline.enable_vae_slicing()
         if hasattr(pipeline, "enable_vae_tiling"):
             pipeline.enable_vae_tiling()
-        if hasattr(pipeline, "enable_attention_slicing"):
-            pipeline.enable_attention_slicing("auto")
+        # NOTE: Do NOT enable_attention_slicing - it replaces MV-Adapter's custom attention processors
         
         # Clear VRAM after loading
         if torch.cuda.is_available():
