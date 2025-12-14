@@ -665,9 +665,9 @@ class MVAdapterI2MVSDXLPipeline(StableDiffusionXLPipeline, CustomAdapterMixin):
                 torch.cuda.synchronize()  # Ensure all operations complete before continuing
             print(f"[MV-Adapter] Starting VAE decode for {latents.shape[0]} images...")
 
-            # Enable VAE tiling for memory efficiency - tile size of 512 works well
+            # Enable VAE tiling for memory efficiency
             if hasattr(self.vae, 'enable_tiling'):
-                self.vae.enable_tiling(tile_sample_min_size=512)
+                self.vae.enable_tiling()
             
             # Memory-efficient VAE decode: decode one image at a time to reduce peak memory
             # This is crucial for multi-view generation where we have many latents
