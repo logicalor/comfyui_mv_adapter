@@ -101,9 +101,13 @@ class MVAdapterI2MVSampler:
         
         # Apply low VRAM optimizations if enabled
         if low_vram_mode:
-            print("[MV-Adapter] Low VRAM mode enabled - enabling sequential CPU offload")
-            if hasattr(pipeline, 'enable_sequential_cpu_offload'):
-                pipeline.enable_sequential_cpu_offload()
+            print("[MV-Adapter] Low VRAM mode enabled - clearing cache and enabling VAE optimizations")
+            # NOTE: Do NOT use enable_sequential_cpu_offload() - it breaks custom attention processors
+            # Instead, we rely on VAE tiling/slicing and memory cleanup
+            if hasattr(pipeline, 'enable_vae_slicing'):
+                pipeline.enable_vae_slicing()
+            if hasattr(pipeline, 'enable_vae_tiling'):
+                pipeline.enable_vae_tiling()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
         
@@ -254,9 +258,13 @@ class MVAdapterT2MVSampler:
         
         # Apply low VRAM optimizations if enabled
         if low_vram_mode:
-            print("[MV-Adapter] Low VRAM mode enabled - enabling sequential CPU offload")
-            if hasattr(pipeline, 'enable_sequential_cpu_offload'):
-                pipeline.enable_sequential_cpu_offload()
+            print("[MV-Adapter] Low VRAM mode enabled - clearing cache and enabling VAE optimizations")
+            # NOTE: Do NOT use enable_sequential_cpu_offload() - it breaks custom attention processors
+            # Instead, we rely on VAE tiling/slicing and memory cleanup
+            if hasattr(pipeline, 'enable_vae_slicing'):
+                pipeline.enable_vae_slicing()
+            if hasattr(pipeline, 'enable_vae_tiling'):
+                pipeline.enable_vae_tiling()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
         

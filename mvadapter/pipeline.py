@@ -125,13 +125,34 @@ def run_mvadapter_pipeline(
     control_images = control_images.to(device=device, dtype=dtype)
     
     # Ensure all pipeline components are on the correct device
+    # Note: Skip if using CPU offload (meta tensors can't be moved directly)
     if hasattr(pipeline, 'cond_encoder') and pipeline.cond_encoder is not None:
-        pipeline.cond_encoder.to(device=device, dtype=dtype)
+        try:
+            # Check if any parameter is on meta device
+            is_meta = any(p.device.type == 'meta' for p in pipeline.cond_encoder.parameters())
+            if not is_meta:
+                pipeline.cond_encoder.to(device=device, dtype=dtype)
+        except Exception as e:
+            print(f"[MV-Adapter Pipeline] Note: Could not move cond_encoder to device: {e}")
     
-    # Move attention processors to correct device
+    # Move attention processors to correct device (skip meta tensors)
     for name, processor in pipeline.unet.attn_processors.items():
-        if hasattr(processor, 'to'):
-            processor.to(device=device, dtype=dtype)
+        if hasattr(processor, 'to') and hasattr(processor, 'parameters'):
+            try:
+                # Check if any parameter is on meta device
+                params = list(processor.parameters())
+                if params and any(p.device.type == 'meta' for p in params):
+                    continue  # Skip meta tensors - they'll be materialized by the offload hook
+                processor.to(device=device, dtype=dtype)
+            except Exception as e:
+                # Silently skip if we can't move (e.g., CPU offload is managing this)
+                pass
+        elif hasattr(processor, 'to'):
+            try:
+                processor.to(device=device, dtype=dtype)
+            except NotImplementedError:
+                # Meta tensor - skip
+                pass
     
     print(f"[MV-Adapter Pipeline] Running inference:")
     print(f"  - mode: {'I2MV' if reference_image is not None else 'T2MV'}")
