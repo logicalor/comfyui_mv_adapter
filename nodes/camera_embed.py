@@ -4,7 +4,6 @@ Camera embedding node for MV-Adapter.
 Generates Plücker coordinate embeddings for multi-view generation.
 """
 
-import torch
 from typing import Dict, Any, Tuple, Optional
 
 from .pipeline_loader import get_torch_device

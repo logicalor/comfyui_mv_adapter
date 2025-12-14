@@ -5,20 +5,31 @@ Initializes MV-Adapter attention processors and loads adapter weights.
 """
 
 import os
-import torch
-import folder_paths
 from typing import Dict, Any, Tuple, List
-from safetensors.torch import load_file
 
-from .pipeline_loader import MVADAPTER_MODELS_DIR, get_torch_device
+from .pipeline_loader import get_mvadapter_models_dir, get_torch_device
+
+# Defer heavy imports
+torch = None
+folder_paths = None
+
+def _ensure_imports():
+    global torch, folder_paths
+    if torch is None:
+        import torch as _torch
+        torch = _torch
+    if folder_paths is None:
+        import folder_paths as _folder_paths
+        folder_paths = _folder_paths
 
 
 def get_mvadapter_models() -> List[str]:
     """Get list of available MV-Adapter model files."""
     models = []
     
-    if os.path.exists(MVADAPTER_MODELS_DIR):
-        for f in os.listdir(MVADAPTER_MODELS_DIR):
+    models_dir = get_mvadapter_models_dir()
+    if os.path.exists(models_dir):
+        for f in os.listdir(models_dir):
             if f.endswith((".safetensors", ".bin", ".pt")):
                 models.append(f)
     
@@ -122,11 +133,15 @@ class MVAdapterModelSetup:
         
         return (pipeline,)
     
-    def _load_adapter_weights(self, adapter_path: str) -> Dict[str, torch.Tensor]:
+    def _load_adapter_weights(self, adapter_path: str) -> Dict[str, "torch.Tensor"]:
         """Load adapter weights from file or HuggingFace."""
+        from safetensors.torch import load_file
+        _ensure_imports()
+        
+        models_dir = get_mvadapter_models_dir()
         
         # Check if it's a local file
-        local_path = os.path.join(MVADAPTER_MODELS_DIR, adapter_path)
+        local_path = os.path.join(models_dir, adapter_path)
         if os.path.exists(local_path):
             print(f"[MV-Adapter] Loading from local: {local_path}")
             return load_file(local_path)
@@ -150,9 +165,10 @@ class MVAdapterModelSetup:
                     downloaded_path = hf_hub_download(
                         repo_id=repo_id,
                         filename=filename,
-                        cache_dir=MVADAPTER_MODELS_DIR,
+                        cache_dir=get_mvadapter_models_dir(),
                     )
                     
+                    from safetensors.torch import load_file
                     return load_file(downloaded_path)
             except Exception as e:
                 print(f"[MV-Adapter] Error downloading from HuggingFace: {e}")
@@ -198,6 +214,8 @@ class MVAdapterLoRALoader:
         lora_scale: float,
     ):
         """Load LoRA weights into the pipeline."""
+        _ensure_imports()
+        
         if not lora_path or not lora_path.strip():
             return (pipeline,)
         

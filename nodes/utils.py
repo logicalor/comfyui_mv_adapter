@@ -4,9 +4,7 @@ Utility nodes for MV-Adapter.
 Background removal, image preprocessing, and grid utilities.
 """
 
-import torch
 from typing import Dict, Any, Tuple, Optional
-from PIL import Image
 
 from .pipeline_loader import get_torch_device
 
@@ -45,10 +43,11 @@ class MVAdapterBackgroundRemoval:
     
     def remove_background(
         self,
-        image: torch.Tensor,
+        image,  # torch.Tensor
         bg_color: str = "gray",
-    ) -> Tuple[torch.Tensor]:
+    ):
         """Remove background from image."""
+        from PIL import Image
         from ..utils.image_utils import tensor_to_pil, pil_to_tensor
         
         try:
@@ -128,11 +127,11 @@ class MVAdapterImagePreprocess:
     
     def preprocess(
         self,
-        image: torch.Tensor,
+        image,  # torch.Tensor
         target_size: int,
         resize_mode: str,
         bg_color: str = "gray",
-    ) -> Tuple[torch.Tensor]:
+    ):
         """Preprocess image for generation."""
         from ..utils.image_utils import tensor_to_pil, pil_to_tensor, resize_image
         
@@ -204,11 +203,11 @@ class MVAdapterImageGrid:
     
     def create_grid(
         self,
-        images: torch.Tensor,
+        images,  # torch.Tensor
         columns: int = 0,
         padding: int = 0,
         bg_color: str = "white",
-    ) -> Tuple[torch.Tensor]:
+    ):
         """Create image grid from batch."""
         from ..utils.image_utils import tensor_to_pil, pil_to_tensor, create_image_grid
         
@@ -261,9 +260,10 @@ class MVAdapterSplitViews:
     
     def split_views(
         self,
-        images: torch.Tensor,
-    ) -> Tuple[torch.Tensor, ...]:
+        images,  # torch.Tensor
+    ):
         """Split batch into individual views."""
+        import torch
         
         batch_size = images.shape[0]
         

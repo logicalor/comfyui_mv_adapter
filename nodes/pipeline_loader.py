@@ -5,27 +5,34 @@ Loads diffusers pipelines for multi-view generation.
 """
 
 import os
-import torch
-import folder_paths
 from typing import Dict, Any, Tuple, Optional
 
-from diffusers import (
-    StableDiffusionXLPipeline,
-    StableDiffusionPipeline,
-    AutoencoderKL,
-    DDIMScheduler,
-    EulerDiscreteScheduler,
-    EulerAncestralDiscreteScheduler,
-)
+# Defer heavy imports to runtime
+torch = None
+folder_paths = None
+
+def _ensure_imports():
+    """Lazy import heavy dependencies."""
+    global torch, folder_paths
+    if torch is None:
+        import torch as _torch
+        torch = _torch
+    if folder_paths is None:
+        import folder_paths as _folder_paths
+        folder_paths = _folder_paths
 
 
-# Register custom model paths for MV-Adapter
-MVADAPTER_MODELS_DIR = os.path.join(folder_paths.models_dir, "mvadapter")
-os.makedirs(MVADAPTER_MODELS_DIR, exist_ok=True)
+def get_mvadapter_models_dir():
+    """Get MV-Adapter models directory."""
+    _ensure_imports()
+    models_dir = os.path.join(folder_paths.models_dir, "mvadapter")
+    os.makedirs(models_dir, exist_ok=True)
+    return models_dir
 
 
 def get_torch_device():
     """Get the best available torch device."""
+    _ensure_imports()
     if torch.cuda.is_available():
         return torch.device("cuda")
     elif torch.backends.mps.is_available():
@@ -41,6 +48,7 @@ class MVAdapterPipelineLoader:
     """
     
     def __init__(self):
+        _ensure_imports()
         self.device = get_torch_device()
         self.dtype = torch.float16 if self.device.type == "cuda" else torch.float32
     
@@ -80,6 +88,12 @@ class MVAdapterPipelineLoader:
         vae_path: str = "",
     ) -> Tuple[Any, Any]:
         """Load the diffusers pipeline."""
+        from diffusers import (
+            StableDiffusionXLPipeline,
+            StableDiffusionPipeline,
+            AutoencoderKL,
+        )
+        _ensure_imports()
         
         # Set dtype
         dtype_map = {
@@ -177,6 +191,11 @@ class MVAdapterSchedulerConfig:
         shift_scale: float,
     ):
         """Configure the scheduler with optional SNR shifting."""
+        from diffusers import (
+            DDIMScheduler,
+            EulerDiscreteScheduler,
+            EulerAncestralDiscreteScheduler,
+        )
         from ..mvadapter.scheduler import create_scheduler_with_shift
         
         # Create base scheduler

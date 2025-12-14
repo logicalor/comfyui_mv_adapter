@@ -4,9 +4,7 @@ Sampler nodes for MV-Adapter.
 Main generation nodes for text-to-multiview and image-to-multiview.
 """
 
-import torch
 from typing import Dict, Any, Tuple, Optional, List
-from PIL import Image
 
 from .pipeline_loader import get_torch_device
 
@@ -73,15 +71,17 @@ class MVAdapterI2MVSampler:
         self,
         pipeline,
         camera_embed: Dict[str, Any],
-        reference_image: torch.Tensor,
+        reference_image,  # torch.Tensor
         prompt: str,
         negative_prompt: str,
         steps: int,
         guidance_scale: float,
         seed: int,
         reference_conditioning_scale: float = 1.0,
-    ) -> Tuple[torch.Tensor]:
+    ):
         """Generate multi-view images from reference image."""
+        import torch
+        from PIL import Image
         from ..utils.image_utils import tensor_to_pil, pil_to_tensor
         from ..utils.camera_utils import prepare_camera_embed_for_pipeline
         
@@ -219,8 +219,9 @@ class MVAdapterT2MVSampler:
         steps: int,
         guidance_scale: float,
         seed: int,
-    ) -> Tuple[torch.Tensor]:
+    ):
         """Generate multi-view images from text prompt."""
+        import torch
         from ..utils.image_utils import pil_to_tensor
         from ..utils.camera_utils import prepare_camera_embed_for_pipeline
         
