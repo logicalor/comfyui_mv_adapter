@@ -47,8 +47,20 @@ Generates camera embeddings (Plücker coordinates) for multi-view generation.
 ### MVAdapterI2MVSampler
 Main sampling node for image-to-multiview generation.
 
+**Parameters:**
+- `low_vram_mode` (optional): Enable memory optimizations for GPUs with limited VRAM. When enabled:
+  - Enables sequential CPU offload (moves model components to CPU when not in use)
+  - Enables VAE tiling and slicing
+  - Uses maximum attention slicing
+  - More aggressive memory cleanup between operations
+  
+  This may slow down generation but significantly reduces peak VRAM usage.
+
 ### MVAdapterT2MVSampler
 Main sampling node for text-to-multiview generation.
+
+**Parameters:**
+- `low_vram_mode` (optional): Same memory optimizations as I2MVSampler above.
 
 ### MVAdapterBackgroundRemoval
 Removes background from reference images using rembg.

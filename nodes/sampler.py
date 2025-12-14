@@ -89,8 +89,25 @@ class MVAdapterI2MVSampler:
         from ..utils.image_utils import tensor_to_pil, pil_to_tensor
         from ..mvadapter.pipeline import run_mvadapter_pipeline
         
+        # Import ComfyUI progress utilities
+        try:
+            from comfy.utils import ProgressBar
+            pbar = ProgressBar(steps)
+            def progress_callback(current_step, total_steps):
+                pbar.update(1)
+        except ImportError:
+            pbar = None
+            progress_callback = None
+        
         # Apply low VRAM optimizations if enabled
-        if low_vram_mode:\n            print(\"[MV-Adapter] Low VRAM mode enabled - enabling sequential CPU offload\")\n            if hasattr(pipeline, 'enable_sequential_cpu_offload'):\n                pipeline.enable_sequential_cpu_offload()\n            if torch.cuda.is_available():\n                torch.cuda.empty_cache()\n        \n        # Get config from pipeline
+        if low_vram_mode:
+            print("[MV-Adapter] Low VRAM mode enabled - enabling sequential CPU offload")
+            if hasattr(pipeline, 'enable_sequential_cpu_offload'):
+                pipeline.enable_sequential_cpu_offload()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        
+        # Get config from pipeline
         config = getattr(pipeline, \"_mvadapter_config\", {})
         num_views = config.get(\"num_views\", camera_embed[\"num_views\"])
         
@@ -112,7 +129,10 @@ class MVAdapterI2MVSampler:
         
         print(f\"[MV-Adapter] Generating {num_views} views at {width}x{height}\")
         print(f\"[MV-Adapter] Steps: {steps}, CFG: {guidance_scale}, Seed: {seed}\")
-        if low_vram_mode:\n            print(f\"[MV-Adapter] Low VRAM mode: ON\")\n        \n        # Determine dtype from pipeline
+        if low_vram_mode:
+            print(f"[MV-Adapter] Low VRAM mode: ON")
+        
+        # Determine dtype from pipeline
         dtype = torch.float16
         if hasattr(pipeline, 'dtype'):
             dtype = pipeline.dtype
@@ -135,8 +155,7 @@ class MVAdapterI2MVSampler:
             reference_conditioning_scale=reference_conditioning_scale,
             device=self.device,
             dtype=dtype,
-            low_vram_mode=low_vram_mode,
-        )
+            low_vram_mode=low_vram_mode,            progress_callback=progress_callback,        )
         
         # Convert to ComfyUI tensor format (BHWC)
         output_tensor = pil_to_tensor(output_images)
@@ -221,6 +240,16 @@ class MVAdapterT2MVSampler:
         from ..utils.image_utils import pil_to_tensor
         from ..mvadapter.pipeline import run_mvadapter_pipeline
         
+        # Import ComfyUI progress utilities
+        try:
+            from comfy.utils import ProgressBar
+            pbar = ProgressBar(steps)
+            def progress_callback(current_step, total_steps):
+                pbar.update(1)
+        except ImportError:
+            pbar = None
+            progress_callback = None
+        
         # Apply low VRAM optimizations if enabled
         if low_vram_mode:
             print("[MV-Adapter] Low VRAM mode enabled - enabling sequential CPU offload")
@@ -274,6 +303,7 @@ class MVAdapterT2MVSampler:
             device=self.device,
             dtype=dtype,
             low_vram_mode=low_vram_mode,
+            progress_callback=progress_callback,
         )
         
         # Convert to ComfyUI tensor format (BHWC)

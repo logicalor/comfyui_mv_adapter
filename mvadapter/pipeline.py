@@ -85,6 +85,7 @@ def run_mvadapter_pipeline(
     device: torch.device = None,
     dtype: torch.dtype = torch.float16,
     low_vram_mode: bool = False,
+    progress_callback: Optional[callable] = None,
 ) -> List[Image.Image]:
     """
     Run the MV-Adapter pipeline for multi-view generation.
@@ -144,6 +145,12 @@ def run_mvadapter_pipeline(
         print(f"  - reference_image: {ref_image.size}")
         print(f"  - reference_conditioning_scale: {reference_conditioning_scale}")
     
+    # Create step callback for progress reporting
+    def step_callback(pipe, step_index, timestep, callback_kwargs):
+        if progress_callback is not None:
+            progress_callback(step_index + 1, num_inference_steps)
+        return callback_kwargs
+    
     # Build kwargs for the pipeline call
     # These match the MV-Adapter pipeline __call__ signature
     kwargs = {
@@ -161,6 +168,8 @@ def run_mvadapter_pipeline(
         "mv_scale": 1.0,
         "reference_image": ref_image,
         "reference_conditioning_scale": reference_conditioning_scale if reference_image is not None else 0.0,
+        # Progress callback
+        "callback_on_step_end": step_callback if progress_callback is not None else None,
     }
     
     try:
