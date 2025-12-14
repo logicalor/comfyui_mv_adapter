@@ -1,0 +1,11 @@
+torch>=2.0
+torchvision
+diffusers>=0.25.0
+transformers>=4.35.0
+accelerate>=0.24.0
+safetensors
+pillow
+numpy
+opencv-python
+einops
+rembg

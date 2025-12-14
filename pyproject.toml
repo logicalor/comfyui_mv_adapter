@@ -1,0 +1,23 @@
+[project]
+name = "comfyui-mvadapter"
+version = "0.1.0"
+description = "MV-Adapter nodes for ComfyUI - Multi-view image generation"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.0",
+    "torchvision",
+    "diffusers>=0.25.0",
+    "transformers>=4.35.0",
+    "accelerate>=0.24.0",
+    "safetensors",
+    "pillow",
+    "numpy",
+    "opencv-python",
+    "einops",
+    "rembg",
+]
+
+[project.urls]
+Repository = "https://github.com/logicalor/comfyui-mvadapter"
