@@ -454,18 +454,18 @@ class MVAdapterI2MVSDXLPipeline(StableDiffusionXLPipeline, CustomAdapterMixin):
                 return_dict=False,
             )
             ref_hidden_states = {
-                k: v.repeat_interleave(num_images_per_prompt, dim=0)
+                k: v.repeat_interleave(num_images_per_prompt, dim=0).to(device=device)
                 for k, v in ref_hidden_states.items()
             }
         if self.do_classifier_free_guidance:
             ref_hidden_states = {
-                k: torch.cat([torch.zeros_like(v), v], dim=0)
+                k: torch.cat([torch.zeros_like(v), v], dim=0).to(device=device)
                 for k, v in ref_hidden_states.items()
             }
 
         cross_attention_kwargs = {
             "mv_scale": mv_scale,
-            "ref_hidden_states": {k: v.clone() for k, v in ref_hidden_states.items()},
+            "ref_hidden_states": {k: v.clone().to(device=device) for k, v in ref_hidden_states.items()},
             "ref_scale": reference_conditioning_scale,
             "num_views": num_images_per_prompt,
             **(self.cross_attention_kwargs or {}),
@@ -484,9 +484,12 @@ class MVAdapterI2MVSDXLPipeline(StableDiffusionXLPipeline, CustomAdapterMixin):
         )
         control_image_feature = control_image_feature.to(device=device, dtype=latents.dtype)
 
+        # Ensure cond_encoder is on correct device before running
+        self.cond_encoder.to(device=device, dtype=latents.dtype)
+        
         adapter_state = self.cond_encoder(control_image_feature)
         for i, state in enumerate(adapter_state):
-            adapter_state[i] = state * control_conditioning_scale
+            adapter_state[i] = state.to(device=device) * control_conditioning_scale
 
         # 8. Denoising loop
         num_warmup_steps = max(len(timesteps) - num_inference_steps * self.scheduler.order, 0)
@@ -646,6 +649,10 @@ class MVAdapterI2MVSDXLPipeline(StableDiffusionXLPipeline, CustomAdapterMixin):
         zero_init_module_keys: List[str] = [],
     ):
         """Initialize the MV-Adapter with custom attention processors and condition encoder."""
+        # Get device and dtype from unet
+        device = self.unet.device
+        dtype = self.unet.dtype
+        
         # Condition encoder (T2I-Adapter)
         self.cond_encoder = T2IAdapter(
             in_channels=cond_in_channels,
@@ -653,7 +660,7 @@ class MVAdapterI2MVSDXLPipeline(StableDiffusionXLPipeline, CustomAdapterMixin):
             num_res_blocks=2,
             downscale_factor=16,
             adapter_type="full_adapter_xl",
-        )
+        ).to(device=device, dtype=dtype)
 
         # Set custom attn processor for multi-view attention and image cross-attention
         self.unet: UNet2DConditionModel
@@ -666,7 +673,7 @@ class MVAdapterI2MVSDXLPipeline(StableDiffusionXLPipeline, CustomAdapterMixin):
                 name=name,
                 use_mv=True,
                 use_ref=True,
-            ),
+            ).to(device=device, dtype=dtype),
             set_cross_attn_proc_func=lambda name, hs, cad, ap: self_attn_processor(
                 query_dim=hs,
                 inner_dim=hs,
@@ -674,7 +681,7 @@ class MVAdapterI2MVSDXLPipeline(StableDiffusionXLPipeline, CustomAdapterMixin):
                 name=name,
                 use_mv=False,
                 use_ref=False,
-            ),
+            ).to(device=device, dtype=dtype),
         )
 
         # Copy decoupled attention weights from original unet
@@ -699,6 +706,11 @@ class MVAdapterI2MVSDXLPipeline(StableDiffusionXLPipeline, CustomAdapterMixin):
         """Load MV-Adapter weights into unet and condition encoder."""
         self.unet.load_state_dict(state_dict, strict=False)
         self.cond_encoder.load_state_dict(state_dict, strict=False)
+        
+        # Ensure cond_encoder is on the correct device after loading weights
+        device = self.unet.device
+        dtype = self.unet.dtype
+        self.cond_encoder.to(device=device, dtype=dtype)
 
     def _save_custom_adapter(
         self,

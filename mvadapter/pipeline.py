@@ -107,6 +107,15 @@ def run_mvadapter_pipeline(
     # control_images should be [num_views, 6, H, W] in NCHW format
     control_images = control_images.to(device=device, dtype=dtype)
     
+    # Ensure all pipeline components are on the correct device
+    if hasattr(pipeline, 'cond_encoder') and pipeline.cond_encoder is not None:
+        pipeline.cond_encoder.to(device=device, dtype=dtype)
+    
+    # Move attention processors to correct device
+    for name, processor in pipeline.unet.attn_processors.items():
+        if hasattr(processor, 'to'):
+            processor.to(device=device, dtype=dtype)
+    
     print(f"[MV-Adapter Pipeline] Running inference:")
     print(f"  - mode: {'I2MV' if reference_image is not None else 'T2MV'}")
     print(f"  - num_views (num_images_per_prompt): {num_views}")

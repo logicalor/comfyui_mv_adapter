@@ -290,6 +290,9 @@ class DecoupledMVRowSelfAttnProcessor2_0(nn.Module):
 
         if use_ref and ref_hidden_states is not None:
             reference_hidden_states = ref_hidden_states[self.name]
+            
+            # Ensure reference hidden states are on the same device as query
+            reference_hidden_states = reference_hidden_states.to(device=query.device, dtype=query.dtype)
 
             key_ref = self.to_k_ref(reference_hidden_states)
             value_ref = self.to_v_ref(reference_hidden_states)

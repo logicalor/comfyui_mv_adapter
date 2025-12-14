@@ -128,6 +128,11 @@ class MVAdapterModelSetup:
             pipeline.cond_encoder.to(device=self.device, dtype=pipeline.dtype)
             print(f"[MV-Adapter] cond_encoder moved to {self.device}")
         
+        # Ensure all attention processors are on the correct device
+        for name, processor in pipeline.unet.attn_processors.items():
+            if hasattr(processor, 'to'):
+                processor.to(device=self.device, dtype=pipeline.dtype)
+        
         # Store config for sampler
         pipeline._mvadapter_config = {
             "num_views": num_views,
