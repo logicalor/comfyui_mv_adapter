@@ -422,7 +422,11 @@ class MVAdapterI2MVSDXLPipeline(StableDiffusionXLPipeline, CustomAdapterMixin):
             )
 
         # Preprocess reference image
+        print(f"[MV-Adapter Debug] reference_image type: {type(reference_image)}")
+        if hasattr(reference_image, 'size'):
+            print(f"[MV-Adapter Debug] reference_image size: {reference_image.size}")
         reference_image = self.image_processor.preprocess(reference_image)
+        print(f"[MV-Adapter Debug] preprocessed reference_image shape: {reference_image.shape}")
         reference_latents = self.prepare_image_latents(
             reference_image,
             timesteps[:1].repeat(batch_size * num_images_per_prompt),
@@ -433,18 +437,27 @@ class MVAdapterI2MVSDXLPipeline(StableDiffusionXLPipeline, CustomAdapterMixin):
             generator,
             add_noise=False,
         )
+        print(f"[MV-Adapter Debug] reference_latents shape: {reference_latents.shape}")
 
         with torch.no_grad():
             ref_timesteps = torch.zeros_like(timesteps[0])
             ref_hidden_states = {}
+            
+            # Use the positive prompt embeddings (last one if CFG is used)
+            ref_prompt_embeds = prompt_embeds[-1:] if self.do_classifier_free_guidance else prompt_embeds[:1]
+            ref_text_embeds = add_text_embeds[-1:] if self.do_classifier_free_guidance else add_text_embeds[:1]
+            ref_time_ids = add_time_ids[-1:] if self.do_classifier_free_guidance else add_time_ids[:1]
+            
+            print(f"[MV-Adapter Debug] Running reference UNet pass...")
+            print(f"[MV-Adapter Debug] ref_prompt_embeds shape: {ref_prompt_embeds.shape}")
 
             self.unet(
                 reference_latents,
                 ref_timesteps,
-                encoder_hidden_states=prompt_embeds[-1:],
+                encoder_hidden_states=ref_prompt_embeds,
                 added_cond_kwargs={
-                    "text_embeds": add_text_embeds[-1:],
-                    "time_ids": add_time_ids[-1:],
+                    "text_embeds": ref_text_embeds,
+                    "time_ids": ref_time_ids,
                 },
                 cross_attention_kwargs={
                     "cache_hidden_states": ref_hidden_states,
@@ -453,6 +466,7 @@ class MVAdapterI2MVSDXLPipeline(StableDiffusionXLPipeline, CustomAdapterMixin):
                 },
                 return_dict=False,
             )
+            print(f"[MV-Adapter Debug] ref_hidden_states populated with {len(ref_hidden_states)} keys")
             ref_hidden_states = {
                 k: v.repeat_interleave(num_images_per_prompt, dim=0).to(device=device)
                 for k, v in ref_hidden_states.items()
@@ -463,11 +477,23 @@ class MVAdapterI2MVSDXLPipeline(StableDiffusionXLPipeline, CustomAdapterMixin):
                 for k, v in ref_hidden_states.items()
             }
 
+        # Debug: Log reference hidden states info
+        print(f"[MV-Adapter Debug] ref_hidden_states keys: {list(ref_hidden_states.keys())[:5]}... ({len(ref_hidden_states)} total)")
+        if ref_hidden_states:
+            first_key = list(ref_hidden_states.keys())[0]
+            print(f"[MV-Adapter Debug] ref_hidden_states['{first_key}'] shape: {ref_hidden_states[first_key].shape}")
+        else:
+            print(f"[MV-Adapter Warning] ref_hidden_states is EMPTY! Reference conditioning will not work.")
+        print(f"[MV-Adapter Debug] reference_conditioning_scale (ref_scale): {reference_conditioning_scale}")
+        print(f"[MV-Adapter Debug] mv_scale: {mv_scale}")
+
         cross_attention_kwargs = {
             "mv_scale": mv_scale,
             "ref_hidden_states": {k: v.clone().to(device=device) for k, v in ref_hidden_states.items()},
             "ref_scale": reference_conditioning_scale,
             "num_views": num_images_per_prompt,
+            "use_mv": True,
+            "use_ref": True,
             **(self.cross_attention_kwargs or {}),
         }
 

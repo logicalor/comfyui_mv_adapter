@@ -289,31 +289,43 @@ class DecoupledMVRowSelfAttnProcessor2_0(nn.Module):
             hidden_states_mv = self.to_out_mv[1](hidden_states_mv)
 
         if use_ref and ref_hidden_states is not None:
-            reference_hidden_states = ref_hidden_states[self.name]
-            
-            # Ensure reference hidden states are on the same device as query
-            reference_hidden_states = reference_hidden_states.to(device=query.device, dtype=query.dtype)
+            if self.name not in ref_hidden_states:
+                # Key not found - skip ref attention for this processor
+                if not hasattr(self, '_logged_missing_key'):
+                    print(f"[MV-Adapter Warning] ref_hidden_states missing key '{self.name}', available: {list(ref_hidden_states.keys())[:3]}...")
+                    self._logged_missing_key = True
+                # Don't compute ref attention
+            else:
+                reference_hidden_states = ref_hidden_states[self.name]
+                
+                # Debug: Log when reference cross-attention is being used (only once per processor)
+                if not hasattr(self, '_logged_ref_use'):
+                    print(f"[MV-Adapter Debug] Using ref_hidden_states in processor '{self.name}', shape: {reference_hidden_states.shape}, ref_scale: {ref_scale}")
+                    self._logged_ref_use = True
+                
+                # Ensure reference hidden states are on the same device as query
+                reference_hidden_states = reference_hidden_states.to(device=query.device, dtype=query.dtype)
 
-            key_ref = self.to_k_ref(reference_hidden_states)
-            value_ref = self.to_v_ref(reference_hidden_states)
+                key_ref = self.to_k_ref(reference_hidden_states)
+                value_ref = self.to_v_ref(reference_hidden_states)
 
-            query_ref = query_ref.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
-            key_ref = key_ref.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
-            value_ref = value_ref.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+                query_ref = query_ref.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+                key_ref = key_ref.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+                value_ref = value_ref.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
 
-            hidden_states_ref = F.scaled_dot_product_attention(
-                query_ref, key_ref, value_ref, dropout_p=0.0, is_causal=False
-            )
+                hidden_states_ref = F.scaled_dot_product_attention(
+                    query_ref, key_ref, value_ref, dropout_p=0.0, is_causal=False
+                )
 
-            hidden_states_ref = hidden_states_ref.transpose(1, 2).reshape(
-                batch_size, -1, attn.heads * head_dim
-            )
-            hidden_states_ref = hidden_states_ref.to(query.dtype)
+                hidden_states_ref = hidden_states_ref.transpose(1, 2).reshape(
+                    batch_size, -1, attn.heads * head_dim
+                )
+                hidden_states_ref = hidden_states_ref.to(query.dtype)
 
-            # Linear proj
-            hidden_states_ref = self.to_out_ref[0](hidden_states_ref)
-            # Dropout
-            hidden_states_ref = self.to_out_ref[1](hidden_states_ref)
+                # Linear proj
+                hidden_states_ref = self.to_out_ref[0](hidden_states_ref)
+                # Dropout
+                hidden_states_ref = self.to_out_ref[1](hidden_states_ref)
 
         # Linear proj
         hidden_states = attn.to_out[0](hidden_states)
@@ -323,7 +335,7 @@ class DecoupledMVRowSelfAttnProcessor2_0(nn.Module):
         if use_mv:
             hidden_states = hidden_states + hidden_states_mv * mv_scale
 
-        if use_ref and ref_hidden_states is not None:
+        if use_ref and ref_hidden_states is not None and self.name in ref_hidden_states:
             hidden_states = hidden_states + hidden_states_ref * ref_scale
 
         if input_ndim == 4:
