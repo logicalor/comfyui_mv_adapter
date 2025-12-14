@@ -84,6 +84,7 @@ def run_mvadapter_pipeline(
     reference_conditioning_scale: float = 1.0,
     device: torch.device = None,
     dtype: torch.dtype = torch.float16,
+    low_vram_mode: bool = False,
 ) -> List[Image.Image]:
     """
     Run the MV-Adapter pipeline for multi-view generation.
@@ -93,6 +94,22 @@ def run_mvadapter_pipeline(
     """
     if device is None:
         device = pipeline.device if hasattr(pipeline, 'device') else torch.device("cuda")
+    
+    # Apply additional memory optimizations in low VRAM mode
+    if low_vram_mode:
+        print("[MV-Adapter Pipeline] Low VRAM mode - enabling memory optimizations")
+        # Enable VAE tiling for large images
+        if hasattr(pipeline, 'vae') and hasattr(pipeline.vae, 'enable_tiling'):
+            pipeline.vae.enable_tiling()
+        # Enable VAE slicing to decode one image at a time
+        if hasattr(pipeline, 'enable_vae_slicing'):
+            pipeline.enable_vae_slicing()
+        # More aggressive attention slicing
+        if hasattr(pipeline, 'enable_attention_slicing'):
+            pipeline.enable_attention_slicing(1)  # Maximum slicing
+        # Clear cache before inference
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
     
     # Prepare reference image if provided
     ref_image = None

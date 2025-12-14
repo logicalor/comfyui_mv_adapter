@@ -621,7 +621,21 @@ class MVAdapterI2MVSDXLPipeline(StableDiffusionXLPipeline, CustomAdapterMixin):
             else:
                 latents = latents / self.vae.config.scaling_factor
 
-            image = self.vae.decode(latents, return_dict=False)[0]
+            # Memory-efficient VAE decode: decode one image at a time to reduce peak memory
+            # This is crucial for multi-view generation where we have many latents
+            if latents.shape[0] > 1:
+                images = []
+                for i in range(latents.shape[0]):
+                    single_latent = latents[i:i+1]
+                    single_image = self.vae.decode(single_latent, return_dict=False)[0]
+                    images.append(single_image)
+                    # Clear cache between decodes
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                image = torch.cat(images, dim=0)
+                del images
+            else:
+                image = self.vae.decode(latents, return_dict=False)[0]
 
             if needs_upcasting:
                 self.vae.to(dtype=torch.float16)
@@ -634,6 +648,12 @@ class MVAdapterI2MVSDXLPipeline(StableDiffusionXLPipeline, CustomAdapterMixin):
             image = self.image_processor.postprocess(image, output_type=output_type)
 
         self.maybe_free_model_hooks()
+        
+        # Clean up memory
+        del cross_attention_kwargs
+        del adapter_state
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         if not return_dict:
             return (image,)

@@ -59,6 +59,9 @@ class MVAdapterI2MVSampler:
                     "max": 2.0,
                     "step": 0.1,
                 }),
+                "low_vram_mode": ("BOOLEAN", {
+                    "default": False,
+                }),
             },
         }
     
@@ -78,6 +81,7 @@ class MVAdapterI2MVSampler:
         guidance_scale: float,
         seed: int,
         reference_conditioning_scale: float = 1.0,
+        low_vram_mode: bool = False,
     ):
         """Generate multi-view images from reference image."""
         import torch
@@ -85,30 +89,30 @@ class MVAdapterI2MVSampler:
         from ..utils.image_utils import tensor_to_pil, pil_to_tensor
         from ..mvadapter.pipeline import run_mvadapter_pipeline
         
-        # Get config from pipeline
-        config = getattr(pipeline, "_mvadapter_config", {})
-        num_views = config.get("num_views", camera_embed["num_views"])
+        # Apply low VRAM optimizations if enabled
+        if low_vram_mode:\n            print(\"[MV-Adapter] Low VRAM mode enabled - enabling sequential CPU offload\")\n            if hasattr(pipeline, 'enable_sequential_cpu_offload'):\n                pipeline.enable_sequential_cpu_offload()\n            if torch.cuda.is_available():\n                torch.cuda.empty_cache()\n        \n        # Get config from pipeline
+        config = getattr(pipeline, \"_mvadapter_config\", {})
+        num_views = config.get(\"num_views\", camera_embed[\"num_views\"])
         
         # Convert reference image to PIL
         ref_pil_list = tensor_to_pil(reference_image)
         ref_pil = ref_pil_list[0]  # Use first image if batch
         
         # Get dimensions from camera embed
-        width = camera_embed["width"]
-        height = camera_embed["height"]
+        width = camera_embed[\"width\"]
+        height = camera_embed[\"height\"]
         
         # Prepare camera embeddings - convert from NHWC to NCHW
-        plucker_embeds = camera_embed["embeddings"]  # [N, H, W, 6]
+        plucker_embeds = camera_embed[\"embeddings\"]  # [N, H, W, 6]
         control_images = plucker_embeds.permute(0, 3, 1, 2)  # [N, 6, H, W]
         control_images = control_images.to(device=self.device)
         
         # Set random seed
         generator = torch.Generator(device=self.device).manual_seed(seed)
         
-        print(f"[MV-Adapter] Generating {num_views} views at {width}x{height}")
-        print(f"[MV-Adapter] Steps: {steps}, CFG: {guidance_scale}, Seed: {seed}")
-        
-        # Determine dtype from pipeline
+        print(f\"[MV-Adapter] Generating {num_views} views at {width}x{height}\")
+        print(f\"[MV-Adapter] Steps: {steps}, CFG: {guidance_scale}, Seed: {seed}\")
+        if low_vram_mode:\n            print(f\"[MV-Adapter] Low VRAM mode: ON\")\n        \n        # Determine dtype from pipeline
         dtype = torch.float16
         if hasattr(pipeline, 'dtype'):
             dtype = pipeline.dtype
@@ -131,12 +135,17 @@ class MVAdapterI2MVSampler:
             reference_conditioning_scale=reference_conditioning_scale,
             device=self.device,
             dtype=dtype,
+            low_vram_mode=low_vram_mode,
         )
         
         # Convert to ComfyUI tensor format (BHWC)
         output_tensor = pil_to_tensor(output_images)
         
-        print(f"[MV-Adapter] Generated {len(output_images)} images")
+        # Clean up memory after generation
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        print(f\"[MV-Adapter] Generated {len(output_images)} images\")
         
         return (output_tensor,)
 
@@ -183,6 +192,12 @@ class MVAdapterT2MVSampler:
                     "max": 0xffffffffffffffff,
                 }),
             },
+            "optional": {
+                "low_vram_mode": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Enable memory optimizations for GPUs with limited VRAM. May be slower but uses less memory.",
+                }),
+            },
         }
     
     RETURN_TYPES = ("IMAGE",)
@@ -199,11 +214,20 @@ class MVAdapterT2MVSampler:
         steps: int,
         guidance_scale: float,
         seed: int,
+        low_vram_mode: bool = False,
     ):
         """Generate multi-view images from text prompt."""
         import torch
         from ..utils.image_utils import pil_to_tensor
         from ..mvadapter.pipeline import run_mvadapter_pipeline
+        
+        # Apply low VRAM optimizations if enabled
+        if low_vram_mode:
+            print("[MV-Adapter] Low VRAM mode enabled - enabling sequential CPU offload")
+            if hasattr(pipeline, 'enable_sequential_cpu_offload'):
+                pipeline.enable_sequential_cpu_offload()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
         
         # Get config from pipeline
         config = getattr(pipeline, "_mvadapter_config", {})
@@ -223,6 +247,8 @@ class MVAdapterT2MVSampler:
         
         print(f"[MV-Adapter] Generating {num_views} views at {width}x{height}")
         print(f"[MV-Adapter] Steps: {steps}, CFG: {guidance_scale}, Seed: {seed}")
+        if low_vram_mode:
+            print(f"[MV-Adapter] Low VRAM mode: ON")
         
         # Determine dtype from pipeline
         dtype = torch.float16
@@ -247,10 +273,15 @@ class MVAdapterT2MVSampler:
             reference_conditioning_scale=0.0,
             device=self.device,
             dtype=dtype,
+            low_vram_mode=low_vram_mode,
         )
         
         # Convert to ComfyUI tensor format (BHWC)
         output_tensor = pil_to_tensor(output_images)
+        
+        # Clean up memory after generation
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         
         print(f"[MV-Adapter] Generated {len(output_images)} images")
         

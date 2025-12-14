@@ -176,6 +176,12 @@ class MVAdapterPipelineLoader:
         pipeline.enable_vae_slicing()
         if hasattr(pipeline, "enable_vae_tiling"):
             pipeline.enable_vae_tiling()
+        if hasattr(pipeline, "enable_attention_slicing"):
+            pipeline.enable_attention_slicing("auto")
+        
+        # Clear VRAM after loading
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         
         print(f"[MV-Adapter] Pipeline loaded successfully on {self.device}")
         
