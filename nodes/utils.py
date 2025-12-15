@@ -427,6 +427,18 @@ class MVAdapterVAEDecode:
         # Concatenate results
         output = torch.cat(decoded_images, dim=0)
         
+        # Convert from NCHW (VAE output) to NHWC (ComfyUI format)
+        # VAE outputs: [B, C, H, W] -> ComfyUI expects: [B, H, W, C]
+        if output.shape[1] == 3:  # Channels in position 1 (NCHW)
+            output = output.permute(0, 2, 3, 1)
+        
+        # Normalize to 0-1 range if needed (VAE output is typically -1 to 1)
+        if output.min() < 0:
+            output = (output + 1.0) / 2.0
+        
+        # Clamp to valid range
+        output = output.clamp(0, 1)
+        
         # Final cleanup
         del decoded_images
         gc.collect()
