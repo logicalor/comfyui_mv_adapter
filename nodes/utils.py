@@ -383,12 +383,8 @@ class MVAdapterVAEDecode:
         if samples is None:
             raise ValueError("[MV-Adapter VAE Decode] latents['samples'] is None")
         
-        # Scale latents for VAE decode
-        # MV-Adapter outputs raw latents that need to be scaled by 1/scaling_factor
-        # SDXL VAE scaling factor is typically 0.13025
-        scaling_factor = 0.13025
-        samples = samples / scaling_factor
-        print(f"[MV-Adapter] Scaled latents by 1/{scaling_factor}")
+        # Debug: print latent stats
+        print(f"[MV-Adapter] Latent stats - min: {samples.min().item():.4f}, max: {samples.max().item():.4f}, mean: {samples.mean().item():.4f}")
         
         batch_size = samples.shape[0]
         
@@ -435,6 +431,8 @@ class MVAdapterVAEDecode:
         # Concatenate results
         output = torch.cat(decoded_images, dim=0)
         
+        print(f"[MV-Adapter] Raw decode output - shape: {output.shape}, min: {output.min().item():.4f}, max: {output.max().item():.4f}")
+        
         # Convert from NCHW (VAE output) to NHWC (ComfyUI format)
         # VAE outputs: [B, C, H, W] -> ComfyUI expects: [B, H, W, C]
         if output.shape[1] == 3:  # Channels in position 1 (NCHW)
@@ -446,6 +444,8 @@ class MVAdapterVAEDecode:
         
         # Clamp to valid range
         output = output.clamp(0, 1)
+        
+        print(f"[MV-Adapter] After normalization - min: {output.min().item():.4f}, max: {output.max().item():.4f}")
         
         # Final cleanup
         del decoded_images
