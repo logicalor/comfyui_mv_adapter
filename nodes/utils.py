@@ -406,11 +406,20 @@ class MVAdapterVAEDecode:
             # Use ComfyUI's VAE decode
             decoded = vae.decode(single_latent)
             
+            # Handle different return types (tensor, DecoderOutput, tuple)
+            if hasattr(decoded, 'sample'):
+                # DecoderOutput object
+                decoded_tensor = decoded.sample
+            elif isinstance(decoded, tuple):
+                decoded_tensor = decoded[0]
+            else:
+                decoded_tensor = decoded
+            
             # Move to CPU immediately to free VRAM
-            decoded_images.append(decoded.cpu())
+            decoded_images.append(decoded_tensor.cpu())
             
             # Clear intermediate tensors
-            del single_latent, decoded
+            del single_latent, decoded, decoded_tensor
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
