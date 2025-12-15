@@ -31,17 +31,21 @@ def get_mvadapter_models_dir():
 
 
 def get_vae_list():
-    """Get list of available VAE models."""
+    """Get list of available VAE models, including subdirectories."""
     _ensure_imports()
     vae_list = ["none"]  # Option to not load a separate VAE
     
-    # Get VAEs from ComfyUI's vae folder
-    vae_dir = folder_paths.get_folder_paths("vae")
-    for vae_folder in vae_dir:
+    # Get VAEs from ComfyUI's vae folder(s)
+    vae_dirs = folder_paths.get_folder_paths("vae")
+    for vae_folder in vae_dirs:
         if os.path.exists(vae_folder):
-            for f in os.listdir(vae_folder):
-                if f.endswith(('.safetensors', '.ckpt', '.pt', '.bin')):
-                    vae_list.append(f)
+            # Walk through all subdirectories
+            for root, dirs, files in os.walk(vae_folder):
+                for f in files:
+                    if f.endswith(('.safetensors', '.ckpt', '.pt', '.bin')):
+                        # Get relative path from vae folder
+                        rel_path = os.path.relpath(os.path.join(root, f), vae_folder)
+                        vae_list.append(rel_path)
     
     return vae_list
 
