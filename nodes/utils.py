@@ -404,8 +404,8 @@ class MVAdapterVAEDecode:
         for i in range(batch_size):
             print(f"[MV-Adapter] Decoding image {i+1}/{batch_size}...")
             
-            # Get single latent
-            single_latent = samples[i:i+1].to(device)
+            # Get single latent - ensure float32 for VAE decode
+            single_latent = samples[i:i+1].to(device=device, dtype=torch.float32)
             
             # Use ComfyUI's VAE decode
             decoded = vae.decode(single_latent)
@@ -418,6 +418,8 @@ class MVAdapterVAEDecode:
                 decoded_tensor = decoded[0]
             else:
                 decoded_tensor = decoded
+            
+            print(f"[MV-Adapter] Decoded tensor {i+1} - shape: {decoded_tensor.shape}, min: {decoded_tensor.min().item():.4f}, max: {decoded_tensor.max().item():.4f}")
             
             # Move to CPU immediately to free VRAM
             decoded_images.append(decoded_tensor.cpu())
