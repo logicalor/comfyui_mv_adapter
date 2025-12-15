@@ -30,6 +30,22 @@ def get_mvadapter_models_dir():
     return models_dir
 
 
+def get_vae_list():
+    """Get list of available VAE models."""
+    _ensure_imports()
+    vae_list = ["none"]  # Option to not load a separate VAE
+    
+    # Get VAEs from ComfyUI's vae folder
+    vae_dir = folder_paths.get_folder_paths("vae")
+    for vae_folder in vae_dir:
+        if os.path.exists(vae_folder):
+            for f in os.listdir(vae_folder):
+                if f.endswith(('.safetensors', '.ckpt', '.pt', '.bin')):
+                    vae_list.append(f)
+    
+    return vae_list
+
+
 def get_torch_device():
     """Get the best available torch device."""
     _ensure_imports()
@@ -62,6 +78,7 @@ class MVAdapterPipelineLoader:
     
     @classmethod
     def INPUT_TYPES(cls) -> Dict[str, Any]:
+        _ensure_imports()
         return {
             "required": {
                 "model_path": ("STRING", {
@@ -79,9 +96,9 @@ class MVAdapterPipelineLoader:
                 }),
             },
             "optional": {
-                "vae_path": ("STRING", {
-                    "default": "",
-                    "multiline": False,
+                "vae_name": (get_vae_list(), {
+                    "default": "none",
+                    "tooltip": "Optional: Select a VAE from models/vae folder. Use 'none' to use the model's built-in VAE.",
                 }),
             }
         }
@@ -97,10 +114,11 @@ class MVAdapterPipelineLoader:
         model_type: str,
         torch_dtype: str,
         auto_download: bool = True,
-        vae_path: str = "",
+        vae_name: str = "none",
     ) -> Tuple[Any, Any]:
         """Load the MV-Adapter pipeline."""
         from diffusers import AutoencoderKL
+        from safetensors.torch import load_file
         
         # Import our bundled MV-Adapter pipeline
         from ..mvadapter.pipelines import MVAdapterI2MVSDXLPipeline
@@ -129,12 +147,31 @@ class MVAdapterPipelineLoader:
         
         # Load VAE if specified
         vae = None
-        if vae_path and vae_path.strip():
-            print(f"[MV-Adapter] Loading VAE from {vae_path}")
-            vae = AutoencoderKL.from_pretrained(
-                vae_path,
-                torch_dtype=dtype,
-            )
+        if vae_name and vae_name != "none":
+            # Find VAE file in ComfyUI's vae folder
+            vae_path = None
+            for vae_folder in folder_paths.get_folder_paths("vae"):
+                potential_path = os.path.join(vae_folder, vae_name)
+                if os.path.exists(potential_path):
+                    vae_path = potential_path
+                    break
+            
+            if vae_path:
+                print(f"[MV-Adapter] Loading VAE from {vae_path}")
+                if vae_path.endswith('.safetensors'):
+                    # Load safetensors VAE
+                    vae = AutoencoderKL.from_single_file(
+                        vae_path,
+                        torch_dtype=dtype,
+                    )
+                else:
+                    # Load other formats
+                    vae = AutoencoderKL.from_single_file(
+                        vae_path,
+                        torch_dtype=dtype,
+                    )
+            else:
+                print(f"[MV-Adapter] Warning: VAE '{vae_name}' not found in vae folders")
         
         # Select pipeline class based on model type
         # Currently only SDXL is supported with bundled pipeline
