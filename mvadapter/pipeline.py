@@ -212,8 +212,8 @@ def run_mvadapter_pipeline(
             # Return decoded images
             if hasattr(output, 'images'):
                 return output.images
-        else:
-            return output[0]
+            else:
+                return output[0]
             
     except Exception as e:
         print(f"[MV-Adapter Pipeline] Error during generation: {e}")
