@@ -199,14 +199,19 @@ def run_mvadapter_pipeline(
         # Call the MV-Adapter pipeline
         output = pipeline(**kwargs)
         
-        # Return based on output type
+        # The MV-Adapter pipeline stores output in 'images' attribute regardless of output_type
+        # When output_type="latent", images contains raw latent tensors
+        # When output_type="pil", images contains PIL images
+        
         if output_type == "latent":
-            # Return latents directly
-            if hasattr(output, 'latents') and output.latents is not None:
-                return output.latents
-            elif hasattr(output, 'images') and output.images is not None:
-                # Pipeline returned images instead of latents - this shouldn't happen
-                raise ValueError("Pipeline returned images instead of latents. Check output_type parameter.")
+            # Return latents - they're stored in the 'images' attribute when output_type="latent"
+            if hasattr(output, 'images') and output.images is not None:
+                result = output.images
+                # Verify it's actually a tensor (latents) not PIL images
+                if hasattr(result, 'shape'):
+                    return result
+                else:
+                    raise ValueError(f"Expected latent tensor but got {type(result)}. Pipeline may not support latent output.")
             elif isinstance(output, tuple) and len(output) > 0 and output[0] is not None:
                 return output[0]
             else:
