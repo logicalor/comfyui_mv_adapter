@@ -398,14 +398,22 @@ class MVAdapterVAEDecode:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         
+        # Determine VAE dtype
+        vae_dtype = torch.float16
+        if hasattr(vae, 'dtype'):
+            vae_dtype = vae.dtype
+        elif hasattr(vae, 'post_quant_conv') and hasattr(vae.post_quant_conv, 'weight'):
+            vae_dtype = vae.post_quant_conv.weight.dtype
+        print(f"[MV-Adapter] VAE dtype: {vae_dtype}")
+        
         decoded_images = []
         
         # Decode one at a time for memory efficiency
         for i in range(batch_size):
             print(f"[MV-Adapter] Decoding image {i+1}/{batch_size}...")
             
-            # Get single latent - ensure float32 for VAE decode
-            single_latent = samples[i:i+1].to(device=device, dtype=torch.float32)
+            # Get single latent - match VAE dtype
+            single_latent = samples[i:i+1].to(device=device, dtype=vae_dtype)
             
             # Use ComfyUI's VAE decode
             decoded = vae.decode(single_latent)
