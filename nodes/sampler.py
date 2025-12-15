@@ -178,13 +178,19 @@ class MVAdapterI2MVSampler:
         
         if output_type == "latents":
             # Return latents in ComfyUI format
-            print(f"[MV-Adapter] Generated latents with shape {output.shape}")
+            if output is None:
+                raise ValueError("[MV-Adapter I2MV] Pipeline returned None for latents output")
+            if not hasattr(output, 'shape'):
+                raise ValueError(f"[MV-Adapter I2MV] Expected tensor output for latents, got {type(output)}")
+            print(f"[MV-Adapter I2MV] Generated latents with shape {output.shape}")
             latent_dict = {"samples": output}
             return (None, latent_dict)
         else:
             # Convert to ComfyUI tensor format (BHWC)
+            if output is None:
+                raise ValueError("[MV-Adapter I2MV] Pipeline returned None for images output")
             output_tensor = pil_to_tensor(output)
-            print(f"[MV-Adapter] Generated {len(output)} images")
+            print(f"[MV-Adapter I2MV] Generated {len(output)} images")
             return (output_tensor, None)
 
 
@@ -342,11 +348,17 @@ class MVAdapterT2MVSampler:
         # Handle output based on type
         if output_type == "latents":
             # Return latents in ComfyUI format
-            print(f"[MV-Adapter] Generated latents with shape {output.shape}")
+            if output is None:
+                raise ValueError("[MV-Adapter T2MV] Pipeline returned None for latents output")
+            if not hasattr(output, 'shape'):
+                raise ValueError(f"[MV-Adapter T2MV] Expected tensor output for latents, got {type(output)}")
+            print(f"[MV-Adapter T2MV] Generated latents with shape {output.shape}")
             latent_dict = {"samples": output}
             return (None, latent_dict)
         else:
             # Convert to ComfyUI tensor format (BHWC)
+            if output is None:
+                raise ValueError("[MV-Adapter T2MV] Pipeline returned None for images output")
             output_tensor = pil_to_tensor(output)
-            print(f"[MV-Adapter] Generated {len(output)} images")
+            print(f"[MV-Adapter T2MV] Generated {len(output)} images")
             return (output_tensor, None)

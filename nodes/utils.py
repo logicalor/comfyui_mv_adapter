@@ -306,6 +306,10 @@ class MVAdapterClearVRAM:
         import gc
         import torch
         
+        # Validate input
+        if latents is None:
+            raise ValueError("[MV-Adapter Clear VRAM] latents input is None. Make sure output_type is set to 'latents' in the sampler and you're connecting the 'latents' output (not 'images').")
+        
         # Force garbage collection
         gc.collect()
         
@@ -364,7 +368,20 @@ class MVAdapterVAEDecode:
         import gc
         import torch
         
+        # Validate input
+        if latents is None:
+            raise ValueError("[MV-Adapter VAE Decode] latents input is None. Make sure output_type is set to 'latents' in the sampler and you're connecting the 'latents' output (not 'images').")
+        
+        if not isinstance(latents, dict):
+            raise ValueError(f"[MV-Adapter VAE Decode] Expected latents to be a dict, got {type(latents)}")
+        
+        if "samples" not in latents:
+            raise ValueError(f"[MV-Adapter VAE Decode] latents dict missing 'samples' key. Keys present: {list(latents.keys())}")
+        
         samples = latents["samples"]
+        
+        if samples is None:
+            raise ValueError("[MV-Adapter VAE Decode] latents['samples'] is None")
         batch_size = samples.shape[0]
         
         print(f"[MV-Adapter] Memory-efficient VAE decode: {batch_size} images")

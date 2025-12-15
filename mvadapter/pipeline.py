@@ -202,24 +202,31 @@ def run_mvadapter_pipeline(
         # Return based on output type
         if output_type == "latent":
             # Return latents directly
-            if hasattr(output, 'latents'):
+            if hasattr(output, 'latents') and output.latents is not None:
                 return output.latents
-            elif isinstance(output, tuple) and len(output) > 0:
-                return output[0]  # Latents are first element
+            elif hasattr(output, 'images') and output.images is not None:
+                # Pipeline returned images instead of latents - this shouldn't happen
+                raise ValueError("Pipeline returned images instead of latents. Check output_type parameter.")
+            elif isinstance(output, tuple) and len(output) > 0 and output[0] is not None:
+                return output[0]
             else:
-                return output
+                raise ValueError(f"Pipeline output has no valid latents. Output type: {type(output)}")
         else:
             # Return decoded images
-            if hasattr(output, 'images'):
+            if hasattr(output, 'images') and output.images is not None:
                 return output.images
-            else:
+            elif isinstance(output, tuple) and len(output) > 0 and output[0] is not None:
                 return output[0]
+            elif isinstance(output, list) and len(output) > 0:
+                return output
+            else:
+                raise ValueError(f"Pipeline output has no valid images. Output type: {type(output)}")
             
     except Exception as e:
         print(f"[MV-Adapter Pipeline] Error during generation: {e}")
         import traceback
         traceback.print_exc()
         
-        # Return placeholder images on error
-        placeholder = Image.new("RGB", (width, height), color=(128, 128, 128))
-        return [placeholder] * num_views
+        # Re-raise the exception - don't return placeholder images
+        # This ensures errors are visible to the user
+        raise
