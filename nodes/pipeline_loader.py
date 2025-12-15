@@ -92,10 +92,6 @@ class MVAdapterPipelineLoader:
                 "model_type": (["SDXL", "SD2.1"], {
                     "default": "SDXL",
                 }),
-                "torch_dtype": (["float16", "float32", "bfloat16"], {
-                    "default": "bfloat16",
-                    "tooltip": "bfloat16 recommended for best quality. float16 uses less memory but may have precision issues.",
-                }),
                 "auto_download": ("BOOLEAN", {
                     "default": True,
                 }),
@@ -122,7 +118,6 @@ class MVAdapterPipelineLoader:
         self,
         model_path: str,
         model_type: str,
-        torch_dtype: str,
         auto_download: bool = True,
         vae_name: str = "none",
         vae_id: str = "",
@@ -136,13 +131,40 @@ class MVAdapterPipelineLoader:
         
         _ensure_imports()
         
-        # Set dtype
-        dtype_map = {
-            "float16": torch.float16,
-            "float32": torch.float32,
-            "bfloat16": torch.bfloat16,
-        }
-        dtype = dtype_map[torch_dtype]
+        # Auto-detect best dtype for the GPU
+        dtype = torch.float32  # default fallback
+        
+        if torch.cuda.is_available():
+            device_name = torch.cuda.get_device_name(0).lower()
+            
+            # Check if it's AMD/ROCm
+            is_amd = "amd" in device_name or "radeon" in device_name or "gfx" in device_name
+            
+            if is_amd:
+                # AMD GPUs: Test bfloat16 support directly
+                try:
+                    test_tensor = torch.tensor([1.0], dtype=torch.bfloat16, device="cuda")
+                    _ = test_tensor * 2  # Simple operation to verify it works
+                    dtype = torch.bfloat16
+                    print(f"[MV-Adapter] AMD GPU detected ({device_name}), using bfloat16")
+                except Exception:
+                    dtype = torch.float16
+                    print(f"[MV-Adapter] AMD GPU detected ({device_name}), bfloat16 not supported, using float16")
+            else:
+                # NVIDIA GPUs: Check compute capability
+                try:
+                    capability = torch.cuda.get_device_capability()
+                    if capability[0] >= 8:  # Ampere (RTX 30xx, A100) or newer
+                        dtype = torch.bfloat16
+                        print(f"[MV-Adapter] NVIDIA GPU (compute {capability[0]}.{capability[1]}), using bfloat16")
+                    else:
+                        dtype = torch.float16
+                        print(f"[MV-Adapter] NVIDIA GPU (compute {capability[0]}.{capability[1]}), using float16")
+                except Exception:
+                    dtype = torch.float16
+                    print(f"[MV-Adapter] Could not detect GPU capability, using float16")
+        else:
+            print(f"[MV-Adapter] No CUDA GPU, using float32")
         
         # Check if model exists locally or needs download
         is_hf_model = "/" in model_path and not os.path.exists(model_path)
