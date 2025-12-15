@@ -1,101 +1,149 @@
 """
 Scheduler utilities for MV-Adapter.
 
-Implements ShiftSNR scheduler wrapper for improved multi-view generation quality.
+Implements ShiftSNR scheduler for improved multi-view generation quality.
+Based on the official MV-Adapter implementation:
+https://github.com/huanngzh/MV-Adapter/blob/main/mvadapter/schedulers/scheduling_shift_snr.py
 """
 
 import torch
 import numpy as np
-from typing import Optional
+from typing import Any, Optional
+
+
+def compute_snr(timesteps: torch.Tensor, noise_scheduler) -> torch.Tensor:
+    """
+    Compute SNR (Signal-to-Noise Ratio) for given timesteps.
+    
+    Based on Min-SNR-Diffusion-Training approach.
+    """
+    alphas_cumprod = noise_scheduler.alphas_cumprod
+    sqrt_alphas_cumprod = alphas_cumprod ** 0.5
+    sqrt_one_minus_alphas_cumprod = (1.0 - alphas_cumprod) ** 0.5
+
+    sqrt_alphas_cumprod = sqrt_alphas_cumprod.to(device=timesteps.device)[timesteps].float()
+    sqrt_one_minus_alphas_cumprod = sqrt_one_minus_alphas_cumprod.to(device=timesteps.device)[timesteps].float()
+
+    alpha = sqrt_alphas_cumprod
+    sigma = sqrt_one_minus_alphas_cumprod
+
+    # Compute SNR
+    snr = (alpha / sigma) ** 2
+    return snr
+
+
+def SNR_to_betas(snr: torch.Tensor) -> torch.Tensor:
+    """
+    Convert SNR values back to betas for the scheduler.
+    """
+    # alpha_t^2 / (1 - alpha_t^2) = snr
+    # alpha_t = sqrt(snr / (1 + snr))
+    alpha_t = (snr / (1 + snr)) ** 0.5
+    alphas_cumprod = alpha_t ** 2
+    
+    # alphas = alphas_cumprod[t] / alphas_cumprod[t-1]
+    alphas = alphas_cumprod / torch.cat([torch.ones(1, device=snr.device), alphas_cumprod[:-1]])
+    betas = 1 - alphas
+    return betas
 
 
 class ShiftSNRScheduler:
     """
-    Wrapper that applies SNR shifting to any scheduler.
+    Factory class that creates schedulers with shifted SNR noise schedules.
     
-    SNR (Signal-to-Noise Ratio) shifting improves the quality of multi-view
-    generation by adjusting the noise schedule.
+    This matches the official MV-Adapter implementation which creates a new
+    scheduler with modified betas rather than wrapping an existing one.
     """
     
     def __init__(
         self,
-        scheduler,
+        noise_scheduler: Any,
+        timesteps: torch.Tensor,
+        shift_scale: float,
+        scheduler_class: Any,
+    ):
+        self.noise_scheduler = noise_scheduler
+        self.timesteps = timesteps
+        self.shift_scale = shift_scale
+        self.scheduler_class = scheduler_class
+    
+    def _get_shift_scheduler(self):
+        """
+        Create scheduler with shifted betas (simple scaling).
+        """
+        snr = compute_snr(self.timesteps, self.noise_scheduler)
+        shifted_betas = SNR_to_betas(snr / self.shift_scale)
+        
+        return self.scheduler_class.from_config(
+            self.noise_scheduler.config, 
+            trained_betas=shifted_betas.numpy()
+        )
+    
+    def _get_interpolated_shift_scheduler(self):
+        """
+        Create scheduler with interpolated shifted betas.
+        
+        Interpolates between original and shifted SNR in log space for
+        smoother transition across timesteps.
+        """
+        snr = compute_snr(self.timesteps, self.noise_scheduler)
+        shifted_snr = snr / self.shift_scale
+        
+        # Weight increases linearly from 0 to 1 across timesteps
+        weighting = self.timesteps.float() / (self.noise_scheduler.config.num_train_timesteps - 1)
+        
+        # Interpolate in log space
+        interpolated_snr = torch.exp(
+            torch.log(snr) * (1 - weighting) + torch.log(shifted_snr) * weighting
+        )
+        
+        shifted_betas = SNR_to_betas(interpolated_snr)
+        
+        return self.scheduler_class.from_config(
+            self.noise_scheduler.config,
+            trained_betas=shifted_betas.numpy()
+        )
+    
+    @classmethod
+    def from_scheduler(
+        cls,
+        noise_scheduler: Any,
         shift_mode: str = "interpolated",
+        timesteps: Optional[torch.Tensor] = None,
         shift_scale: float = 8.0,
-        scheduler_class: Optional[type] = None,
+        scheduler_class: Optional[Any] = None,
     ):
         """
+        Create a new scheduler with SNR shifting applied.
+        
         Args:
-            scheduler: The base scheduler to wrap
-            shift_mode: How to shift SNR ("interpolated" or "scaled")
-            shift_scale: Scale factor for shifting
-            scheduler_class: Original scheduler class (for compatibility)
-        """
-        self.scheduler = scheduler
-        self.shift_mode = shift_mode
-        self.shift_scale = shift_scale
-        self.scheduler_class = scheduler_class or type(scheduler)
-        
-        # Copy attributes from base scheduler
-        self._copy_scheduler_attributes()
-        
-        # Apply SNR shift
-        self._apply_snr_shift()
-    
-    def _copy_scheduler_attributes(self):
-        """Copy important attributes from base scheduler."""
-        attrs_to_copy = [
-            'num_train_timesteps', 'timesteps', 'alphas_cumprod',
-            'final_alpha_cumprod', 'init_noise_sigma', 'config'
-        ]
-        for attr in attrs_to_copy:
-            if hasattr(self.scheduler, attr):
-                setattr(self, attr, getattr(self.scheduler, attr))
-    
-    def _apply_snr_shift(self):
-        """Apply SNR shifting to the noise schedule."""
-        if not hasattr(self.scheduler, 'alphas_cumprod'):
-            return
-        
-        alphas_cumprod = self.scheduler.alphas_cumprod.clone()
-        
-        if self.shift_mode == "interpolated":
-            # Interpolated shift: smoother transition
-            snr = alphas_cumprod / (1 - alphas_cumprod)
-            shifted_snr = snr / self.shift_scale
-            shifted_alphas_cumprod = shifted_snr / (1 + shifted_snr)
+            noise_scheduler: Base scheduler to derive config from
+            shift_mode: "default" for simple shift, "interpolated" for smooth transition
+            timesteps: Timesteps to use (defaults to full range)
+            shift_scale: Scale factor for SNR shifting (default 8.0)
+            scheduler_class: Class to use for new scheduler (defaults to same as input)
             
-            # Interpolate between original and shifted
-            t = torch.linspace(0, 1, len(alphas_cumprod))
-            self.scheduler.alphas_cumprod = (
-                (1 - t) * alphas_cumprod + t * shifted_alphas_cumprod
-            )
+        Returns:
+            New scheduler instance with shifted noise schedule
+        """
+        if timesteps is None:
+            timesteps = torch.arange(0, noise_scheduler.config.num_train_timesteps)
+        if scheduler_class is None:
+            scheduler_class = noise_scheduler.__class__
         
-        elif self.shift_mode == "scaled":
-            # Simple scaling
-            snr = alphas_cumprod / (1 - alphas_cumprod)
-            shifted_snr = snr / self.shift_scale
-            self.scheduler.alphas_cumprod = shifted_snr / (1 + shifted_snr)
-    
-    def set_timesteps(self, num_inference_steps: int, device=None):
-        """Set timesteps for inference."""
-        return self.scheduler.set_timesteps(num_inference_steps, device=device)
-    
-    def step(self, *args, **kwargs):
-        """Perform one scheduler step."""
-        return self.scheduler.step(*args, **kwargs)
-    
-    def add_noise(self, *args, **kwargs):
-        """Add noise to samples."""
-        return self.scheduler.add_noise(*args, **kwargs)
-    
-    def scale_model_input(self, *args, **kwargs):
-        """Scale model input."""
-        return self.scheduler.scale_model_input(*args, **kwargs)
-    
-    def __getattr__(self, name):
-        """Forward attribute access to base scheduler."""
-        return getattr(self.scheduler, name)
+        shift_scheduler = cls(
+            noise_scheduler=noise_scheduler,
+            timesteps=timesteps,
+            shift_scale=shift_scale,
+            scheduler_class=scheduler_class,
+        )
+        
+        if shift_mode == "default":
+            return shift_scheduler._get_shift_scheduler()
+        elif shift_mode == "interpolated":
+            return shift_scheduler._get_interpolated_shift_scheduler()
+        else:
+            raise ValueError(f"Unknown shift_mode: {shift_mode}")
 
 
 def create_scheduler_with_shift(
@@ -110,15 +158,15 @@ def create_scheduler_with_shift(
     Args:
         scheduler: Base scheduler instance
         shift_snr: Whether to apply SNR shifting
-        shift_mode: Shift mode ("interpolated" or "scaled")
-        shift_scale: Scale factor for shifting
+        shift_mode: Shift mode ("default" or "interpolated")
+        shift_scale: Scale factor for shifting (default 8.0)
         
     Returns:
-        Scheduler (wrapped with SNR shift if enabled)
+        Scheduler with SNR shift applied (if enabled)
     """
     if shift_snr:
-        return ShiftSNRScheduler(
-            scheduler=scheduler,
+        return ShiftSNRScheduler.from_scheduler(
+            noise_scheduler=scheduler,
             shift_mode=shift_mode,
             shift_scale=shift_scale,
         )

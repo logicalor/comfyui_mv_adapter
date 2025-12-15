@@ -175,6 +175,136 @@ class MVAdapterBackgroundRemoval:
         return (output_tensor,)
 
 
+class MVAdapterReferencePreprocess:
+    """
+    Official reference image preprocessing for MV-Adapter.
+    
+    Matches the exact preprocessing used in the official HuggingFace demo:
+    - Crops to object bounding box (using alpha)
+    - Resizes to 90% of target size
+    - Centers on gray background
+    
+    Use this node AFTER background removal for best results.
+    """
+    
+    @classmethod
+    def INPUT_TYPES(cls) -> Dict[str, Any]:
+        return {
+            "required": {
+                "image": ("IMAGE",),
+            },
+            "optional": {
+                "target_size": ("INT", {
+                    "default": 768,
+                    "min": 256,
+                    "max": 1024,
+                    "step": 64,
+                    "tooltip": "Output resolution (768 recommended for SDXL)",
+                }),
+                "object_scale": ("FLOAT", {
+                    "default": 0.9,
+                    "min": 0.5,
+                    "max": 1.0,
+                    "step": 0.05,
+                    "tooltip": "How much of the frame the object should fill (0.9 = 90%)",
+                }),
+                "bg_color": ("FLOAT", {
+                    "default": 0.5,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.1,
+                    "tooltip": "Background color (0=black, 0.5=gray, 1=white). Gray (0.5) matches official demo.",
+                }),
+            },
+        }
+    
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("image",)
+    FUNCTION = "preprocess"
+    CATEGORY = "MV-Adapter"
+    
+    def preprocess(
+        self,
+        image,  # torch.Tensor BHWC
+        target_size: int = 768,
+        object_scale: float = 0.9,
+        bg_color: float = 0.5,
+    ):
+        """
+        Preprocess reference image using official demo method.
+        
+        This matches the preprocess_image() function from:
+        https://huggingface.co/spaces/VAST-AI/MV-Adapter-I2MV-SDXL/blob/main/inference_i2mv_sdxl.py
+        """
+        import numpy as np
+        from PIL import Image
+        from ..utils.image_utils import tensor_to_pil, pil_to_tensor
+        
+        height = width = target_size
+        
+        # Convert to PIL
+        pil_images = tensor_to_pil(image)
+        
+        processed_images = []
+        for pil_img in pil_images:
+            # Convert to RGBA if not already
+            if pil_img.mode != "RGBA":
+                pil_img = pil_img.convert("RGBA")
+            
+            img_array = np.array(pil_img)
+            alpha = img_array[..., 3] > 0
+            H, W = alpha.shape
+            
+            # Get bounding box of alpha (object)
+            y, x = np.where(alpha)
+            
+            if len(y) == 0 or len(x) == 0:
+                # No alpha content - just resize
+                result = np.array(pil_img.resize((width, height)))
+                result = result[..., :3]  # Drop alpha
+            else:
+                # Crop to bounding box with 1px margin
+                y0, y1 = max(y.min() - 1, 0), min(y.max() + 1, H)
+                x0, x1 = max(x.min() - 1, 0), min(x.max() + 1, W)
+                image_center = img_array[y0:y1, x0:x1]
+                
+                # Resize longer side to (target_size * object_scale)
+                crop_H, crop_W, _ = image_center.shape
+                target_dim = int(target_size * object_scale)
+                
+                if crop_H > crop_W:
+                    new_W = int(crop_W * target_dim / crop_H)
+                    new_H = target_dim
+                else:
+                    new_H = int(crop_H * target_dim / crop_W)
+                    new_W = target_dim
+                
+                # Resize the cropped object
+                image_center = np.array(
+                    Image.fromarray(image_center).resize((new_W, new_H), Image.LANCZOS)
+                )
+                
+                # Create output canvas and center the object
+                start_h = (height - new_H) // 2
+                start_w = (width - new_W) // 2
+                result = np.zeros((height, width, 4), dtype=np.uint8)
+                result[start_h:start_h + new_H, start_w:start_w + new_W] = image_center
+                
+                # Composite onto background color
+                result = result.astype(np.float32) / 255.0
+                result = result[:, :, :3] * result[:, :, 3:4] + (1 - result[:, :, 3:4]) * bg_color
+                result = (result * 255).clip(0, 255).astype(np.uint8)
+            
+            processed_images.append(Image.fromarray(result))
+        
+        # Convert back to tensor
+        output_tensor = pil_to_tensor(processed_images)
+        
+        print(f"[MV-Adapter] Reference preprocessed: {len(pil_images)} image(s) to {target_size}x{target_size}")
+        
+        return (output_tensor,)
+
+
 class MVAdapterImagePreprocess:
     """
     Preprocess images for MV-Adapter generation.

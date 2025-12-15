@@ -8,6 +8,7 @@ from .camera_embed import MVAdapterCameraEmbed, MVAdapterViewSelector
 from .sampler import MVAdapterI2MVSampler, MVAdapterT2MVSampler
 from .utils import (
     MVAdapterBackgroundRemoval,
+    MVAdapterReferencePreprocess,
     MVAdapterImagePreprocess,
     MVAdapterImageGrid,
     MVAdapterSplitViews,
@@ -25,6 +26,7 @@ __all__ = [
     "MVAdapterI2MVSampler",
     "MVAdapterT2MVSampler",
     "MVAdapterBackgroundRemoval",
+    "MVAdapterReferencePreprocess",
     "MVAdapterImagePreprocess",
     "MVAdapterImageGrid",
     "MVAdapterSplitViews",
