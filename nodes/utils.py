@@ -13,8 +13,13 @@ class MVAdapterBackgroundRemoval:
     """
     Remove background from images for better multi-view generation.
     
-    Uses rembg for background removal and optional preprocessing.
+    Supports two methods:
+    - BiRefNet: Higher quality, better for hair and fine details (recommended)
+    - rembg: Faster, good general purpose
     """
+    
+    _birefnet_model = None
+    _birefnet_transform = None
     
     @classmethod
     def INPUT_TYPES(cls) -> Dict[str, Any]:
@@ -23,6 +28,10 @@ class MVAdapterBackgroundRemoval:
                 "image": ("IMAGE",),
             },
             "optional": {
+                "method": (["birefnet", "rembg"], {
+                    "default": "birefnet",
+                    "tooltip": "BiRefNet is higher quality (used by official demo). rembg is faster.",
+                }),
                 "bg_color": (["gray", "white", "black", "transparent"], {
                     "default": "gray",
                 }),
@@ -41,35 +50,116 @@ class MVAdapterBackgroundRemoval:
         "transparent": None,
     }
     
+    @classmethod
+    def _load_birefnet(cls):
+        """Load BiRefNet model (cached)."""
+        if cls._birefnet_model is None:
+            import torch
+            from torchvision import transforms
+            from transformers import AutoModelForImageSegmentation
+            
+            print("[MV-Adapter] Loading BiRefNet model...")
+            cls._birefnet_model = AutoModelForImageSegmentation.from_pretrained(
+                "ZhengPeng7/BiRefNet", trust_remote_code=True
+            )
+            
+            device = get_torch_device()
+            cls._birefnet_model.to(device)
+            cls._birefnet_model.eval()
+            
+            cls._birefnet_transform = transforms.Compose([
+                transforms.Resize((1024, 1024)),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+            ])
+            print("[MV-Adapter] BiRefNet model loaded")
+        
+        return cls._birefnet_model, cls._birefnet_transform
+    
+    def _remove_bg_birefnet(self, pil_img):
+        """Remove background using BiRefNet."""
+        import torch
+        from PIL import Image
+        
+        model, transform = self._load_birefnet()
+        device = get_torch_device()
+        
+        # Store original size
+        original_size = pil_img.size
+        
+        # Transform image
+        input_tensor = transform(pil_img).unsqueeze(0).to(device)
+        
+        # Run inference
+        with torch.no_grad():
+            preds = model(input_tensor)[-1].sigmoid().cpu()
+        
+        # Get mask
+        pred = preds[0].squeeze()
+        mask = (pred * 255).byte().numpy()
+        
+        # Resize mask to original size
+        mask_img = Image.fromarray(mask).resize(original_size, Image.BILINEAR)
+        
+        # Apply mask to original image
+        pil_img = pil_img.convert("RGBA")
+        pil_img.putalpha(mask_img)
+        
+        return pil_img
+    
+    def _remove_bg_rembg(self, pil_img):
+        """Remove background using rembg."""
+        from rembg import remove
+        return remove(pil_img)
+    
     def remove_background(
         self,
         image,  # torch.Tensor
+        method: str = "birefnet",
         bg_color: str = "gray",
     ):
         """Remove background from image."""
         from PIL import Image
         from ..utils.image_utils import tensor_to_pil, pil_to_tensor
         
-        try:
-            from rembg import remove
-        except ImportError:
-            print("[MV-Adapter] Warning: rembg not installed. Install with: pip install rembg")
-            return (image,)
+        # Check dependencies
+        if method == "rembg":
+            try:
+                from rembg import remove
+            except ImportError:
+                print("[MV-Adapter] Warning: rembg not installed. Install with: pip install rembg")
+                print("[MV-Adapter] Falling back to BiRefNet")
+                method = "birefnet"
+        
+        if method == "birefnet":
+            try:
+                from transformers import AutoModelForImageSegmentation
+            except ImportError:
+                print("[MV-Adapter] Warning: transformers not installed for BiRefNet")
+                return (image,)
         
         # Convert to PIL
         pil_images = tensor_to_pil(image)
         
         processed_images = []
-        for pil_img in pil_images:
+        for i, pil_img in enumerate(pil_images):
+            print(f"[MV-Adapter] Removing background from image {i+1}/{len(pil_images)} using {method}...")
+            
             # Remove background (returns RGBA)
-            result = remove(pil_img)
+            if method == "birefnet":
+                result = self._remove_bg_birefnet(pil_img)
+            else:
+                result = self._remove_bg_rembg(pil_img)
             
             # Apply background color
             color = self.BG_COLORS[bg_color]
             if color is not None:
                 # Create background and composite
                 background = Image.new("RGB", result.size, color)
-                background.paste(result, mask=result.split()[3])
+                if result.mode == "RGBA":
+                    background.paste(result, mask=result.split()[3])
+                else:
+                    background.paste(result)
                 result = background
             else:
                 # Keep as RGBA, convert to RGB for ComfyUI
@@ -80,7 +170,7 @@ class MVAdapterBackgroundRemoval:
         # Convert back to tensor
         output_tensor = pil_to_tensor(processed_images)
         
-        print(f"[MV-Adapter] Background removed from {len(pil_images)} image(s)")
+        print(f"[MV-Adapter] Background removed from {len(pil_images)} image(s) using {method}")
         
         return (output_tensor,)
 
@@ -405,24 +495,28 @@ class MVAdapterVAEDecode:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         
-        # Check if VAE needs upcasting (float16 VAE can produce NaN during decode)
-        needs_upcasting = False
-        original_dtype = None
-        if hasattr(vae, 'dtype') and vae.dtype == torch.float16:
-            needs_upcasting = True
-            original_dtype = vae.dtype
-        elif hasattr(vae, 'post_quant_conv') and hasattr(vae.post_quant_conv, 'weight'):
-            if vae.post_quant_conv.weight.dtype == torch.float16:
-                needs_upcasting = True
-                original_dtype = torch.float16
+        # Determine VAE dtype from model weights
+        vae_dtype = torch.float32  # default fallback
+        if hasattr(vae, 'post_quant_conv') and hasattr(vae.post_quant_conv, 'weight'):
+            vae_dtype = vae.post_quant_conv.weight.dtype
+        elif hasattr(vae, 'dtype'):
+            vae_dtype = vae.dtype
         
-        # Upcast VAE to float32 for stable decoding
+        print(f"[MV-Adapter] Detected VAE dtype: {vae_dtype}")
+        
+        # Only float16 needs upcasting to float32 (can cause NaN due to limited dynamic range)
+        # bfloat16 and float32 are fine as-is
+        needs_upcasting = (vae_dtype == torch.float16)
+        original_dtype = vae_dtype
+        
         if needs_upcasting:
             print(f"[MV-Adapter] Upcasting VAE from float16 to float32 for stable decode")
             vae.to(dtype=torch.float32)
+            decode_dtype = torch.float32
+        else:
+            decode_dtype = vae_dtype
         
-        decode_dtype = torch.float32 if needs_upcasting else (original_dtype or torch.float32)
-        print(f"[MV-Adapter] VAE decode dtype: {decode_dtype}")
+        print(f"[MV-Adapter] Using decode dtype: {decode_dtype}")
         
         decoded_images = []
         
@@ -430,7 +524,7 @@ class MVAdapterVAEDecode:
         for i in range(batch_size):
             print(f"[MV-Adapter] Decoding image {i+1}/{batch_size}...")
             
-            # Get single latent
+            # Get single latent - convert to VAE's dtype
             single_latent = samples[i:i+1].to(device=device, dtype=decode_dtype)
             
             # Use VAE decode
@@ -457,7 +551,7 @@ class MVAdapterVAEDecode:
                 torch.cuda.empty_cache()
         
         # Restore VAE dtype if we upcasted
-        if needs_upcasting and original_dtype is not None:
+        if needs_upcasting:
             print(f"[MV-Adapter] Restoring VAE to {original_dtype}")
             vae.to(dtype=original_dtype)
         
