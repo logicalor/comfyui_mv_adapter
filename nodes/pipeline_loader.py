@@ -50,6 +50,49 @@ def get_vae_list():
     return vae_list
 
 
+def get_checkpoint_list():
+    """Get list of available checkpoint/diffusers models."""
+    _ensure_imports()
+    checkpoint_list = []
+    
+    # Add recommended HuggingFace models at the top
+    hf_models = [
+        "stabilityai/stable-diffusion-xl-base-1.0",
+        "stabilityai/stable-diffusion-2-1",
+    ]
+    checkpoint_list.extend(hf_models)
+    
+    # Get checkpoints from ComfyUI's checkpoints folder(s)
+    try:
+        ckpt_dirs = folder_paths.get_folder_paths("checkpoints")
+        for ckpt_folder in ckpt_dirs:
+            if os.path.exists(ckpt_folder):
+                for root, dirs, files in os.walk(ckpt_folder):
+                    for f in files:
+                        if f.endswith(('.safetensors', '.ckpt')):
+                            # Get relative path from checkpoint folder
+                            rel_path = os.path.relpath(os.path.join(root, f), ckpt_folder)
+                            # Only include SDXL-like models (heuristic: larger files or 'xl' in name)
+                            checkpoint_list.append(rel_path)
+    except Exception:
+        pass
+    
+    # Get diffusers models from ComfyUI's diffusers folder if it exists
+    try:
+        diffusers_dirs = folder_paths.get_folder_paths("diffusers")
+        for diff_folder in diffusers_dirs:
+            if os.path.exists(diff_folder):
+                for item in os.listdir(diff_folder):
+                    item_path = os.path.join(diff_folder, item)
+                    # Check if it's a diffusers model directory (has model_index.json)
+                    if os.path.isdir(item_path) and os.path.exists(os.path.join(item_path, "model_index.json")):
+                        checkpoint_list.append(f"diffusers:{item}")
+    except Exception:
+        pass
+    
+    return checkpoint_list if checkpoint_list else ["stabilityai/stable-diffusion-xl-base-1.0"]
+
+
 def get_torch_device():
     """Get the best available torch device."""
     _ensure_imports()
@@ -67,14 +110,6 @@ class MVAdapterPipelineLoader:
     Supports SDXL and SD2.1 base models from HuggingFace or local paths.
     """
     
-    # Common base models for multi-view generation
-    RECOMMENDED_MODELS = [
-        "stabilityai/stable-diffusion-xl-base-1.0",
-        "stabilityai/stable-diffusion-2-1",
-        "Lykon/dreamshaper-xl-1-0",
-        "cagliostrolab/animagine-xl-3.1",
-    ]
-    
     def __init__(self):
         _ensure_imports()
         self.device = get_torch_device()
@@ -85,9 +120,9 @@ class MVAdapterPipelineLoader:
         _ensure_imports()
         return {
             "required": {
-                "model_path": ("STRING", {
+                "model_name": (get_checkpoint_list(), {
                     "default": "stabilityai/stable-diffusion-xl-base-1.0",
-                    "multiline": False,
+                    "tooltip": "Select a model from checkpoints folder or HuggingFace. For custom HF models, use model_path_override.",
                 }),
                 "model_type": (["SDXL", "SD2.1"], {
                     "default": "SDXL",
@@ -97,6 +132,11 @@ class MVAdapterPipelineLoader:
                 }),
             },
             "optional": {
+                "model_path_override": ("STRING", {
+                    "default": "",
+                    "multiline": False,
+                    "tooltip": "Override model_name with a custom HuggingFace ID (e.g. 'SG161222/RealVisXL_V4.0'). Leave empty to use model_name.",
+                }),
                 "vae_name": (get_vae_list(), {
                     "default": "none",
                     "tooltip": "Select a VAE from models/vae folder, or use 'none' to use model's built-in VAE.",
@@ -116,9 +156,10 @@ class MVAdapterPipelineLoader:
     
     def load_pipeline(
         self,
-        model_path: str,
+        model_name: str,
         model_type: str,
         auto_download: bool = True,
+        model_path_override: str = "",
         vae_name: str = "none",
         vae_id: str = "",
     ) -> Tuple[Any, Any]:
@@ -130,6 +171,32 @@ class MVAdapterPipelineLoader:
         from ..mvadapter.pipelines import MVAdapterI2MVSDXLPipeline
         
         _ensure_imports()
+        
+        # Determine model path: override takes priority, then model_name
+        if model_path_override and model_path_override.strip():
+            model_path = model_path_override.strip()
+        else:
+            model_path = model_name
+        
+        # Handle diffusers: prefix for local diffusers models
+        if model_path.startswith("diffusers:"):
+            diffusers_name = model_path[len("diffusers:"):]
+            diffusers_dirs = folder_paths.get_folder_paths("diffusers")
+            for diff_folder in diffusers_dirs:
+                potential_path = os.path.join(diff_folder, diffusers_name)
+                if os.path.exists(potential_path):
+                    model_path = potential_path
+                    break
+        
+        # Handle local checkpoint files
+        elif not "/" in model_path or not model_path.startswith(("stabilityai/", "huggingface/", "Lykon/", "cagliostrolab/")):
+            # Check if it's a local checkpoint file
+            ckpt_dirs = folder_paths.get_folder_paths("checkpoints")
+            for ckpt_folder in ckpt_dirs:
+                potential_path = os.path.join(ckpt_folder, model_path)
+                if os.path.exists(potential_path):
+                    model_path = potential_path
+                    break
         
         # Auto-detect best dtype for the GPU
         dtype = torch.float32  # default fallback
@@ -227,17 +294,28 @@ class MVAdapterPipelineLoader:
         
         pipeline_kwargs = {
             "torch_dtype": dtype,
-            "use_safetensors": True,
         }
         
         if vae is not None:
             pipeline_kwargs["vae"] = vae
         
         try:
-            pipeline = pipeline_cls.from_pretrained(
-                model_path,
-                **pipeline_kwargs,
-            )
+            # Check if it's a single file checkpoint (.safetensors or .ckpt)
+            is_single_file = model_path.endswith(('.safetensors', '.ckpt'))
+            
+            if is_single_file:
+                print(f"[MV-Adapter] Loading from single file checkpoint")
+                pipeline = pipeline_cls.from_single_file(
+                    model_path,
+                    **pipeline_kwargs,
+                )
+            else:
+                # Load from HuggingFace or diffusers directory
+                pipeline_kwargs["use_safetensors"] = True
+                pipeline = pipeline_cls.from_pretrained(
+                    model_path,
+                    **pipeline_kwargs,
+                )
         except Exception as e:
             if "404" in str(e) or "not found" in str(e).lower():
                 raise ValueError(
