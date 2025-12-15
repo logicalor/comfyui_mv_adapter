@@ -382,6 +382,14 @@ class MVAdapterVAEDecode:
         
         if samples is None:
             raise ValueError("[MV-Adapter VAE Decode] latents['samples'] is None")
+        
+        # Scale latents for VAE decode
+        # MV-Adapter outputs raw latents that need to be scaled by 1/scaling_factor
+        # SDXL VAE scaling factor is typically 0.13025
+        scaling_factor = 0.13025
+        samples = samples / scaling_factor
+        print(f"[MV-Adapter] Scaled latents by 1/{scaling_factor}")
+        
         batch_size = samples.shape[0]
         
         print(f"[MV-Adapter] Memory-efficient VAE decode: {batch_size} images")
