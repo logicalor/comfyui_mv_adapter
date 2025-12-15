@@ -464,9 +464,21 @@ class MVAdapterVAEDecode:
         if output.shape[1] == 3:  # Channels in position 1 (NCHW)
             output = output.permute(0, 2, 3, 1)
         
-        # Normalize to 0-1 range if needed (VAE output is typically -1 to 1)
-        if output.min() < 0:
+        # Normalize based on actual range
+        out_min = output.min().item()
+        out_max = output.max().item()
+        
+        if out_min < -0.5:
+            # Output is in approximately -1 to 1 range (diffusers style)
+            print(f"[MV-Adapter] Normalizing from [-1,1] to [0,1]")
             output = (output + 1.0) / 2.0
+        elif out_max > 1.5:
+            # Output might be in 0-255 range
+            print(f"[MV-Adapter] Normalizing from [0,255] to [0,1]")
+            output = output / 255.0
+        else:
+            # Output is likely already in 0-1 range
+            print(f"[MV-Adapter] Output appears to be in [0,1] range, no normalization needed")
         
         # Clamp to valid range
         output = output.clamp(0, 1)
