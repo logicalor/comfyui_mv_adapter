@@ -398,13 +398,24 @@ class MVAdapterVAEDecode:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         
-        # Determine VAE dtype
-        vae_dtype = torch.float16
-        if hasattr(vae, 'dtype'):
-            vae_dtype = vae.dtype
+        # Check if VAE needs upcasting (float16 VAE can produce NaN during decode)
+        needs_upcasting = False
+        original_dtype = None
+        if hasattr(vae, 'dtype') and vae.dtype == torch.float16:
+            needs_upcasting = True
+            original_dtype = vae.dtype
         elif hasattr(vae, 'post_quant_conv') and hasattr(vae.post_quant_conv, 'weight'):
-            vae_dtype = vae.post_quant_conv.weight.dtype
-        print(f"[MV-Adapter] VAE dtype: {vae_dtype}")
+            if vae.post_quant_conv.weight.dtype == torch.float16:
+                needs_upcasting = True
+                original_dtype = torch.float16
+        
+        # Upcast VAE to float32 for stable decoding
+        if needs_upcasting:
+            print(f"[MV-Adapter] Upcasting VAE from float16 to float32 for stable decode")
+            vae.to(dtype=torch.float32)
+        
+        decode_dtype = torch.float32 if needs_upcasting else (original_dtype or torch.float32)
+        print(f"[MV-Adapter] VAE decode dtype: {decode_dtype}")
         
         decoded_images = []
         
@@ -412,10 +423,10 @@ class MVAdapterVAEDecode:
         for i in range(batch_size):
             print(f"[MV-Adapter] Decoding image {i+1}/{batch_size}...")
             
-            # Get single latent - match VAE dtype
-            single_latent = samples[i:i+1].to(device=device, dtype=vae_dtype)
+            # Get single latent
+            single_latent = samples[i:i+1].to(device=device, dtype=decode_dtype)
             
-            # Use ComfyUI's VAE decode
+            # Use VAE decode
             decoded = vae.decode(single_latent)
             
             # Handle different return types (tensor, DecoderOutput, tuple)
@@ -430,13 +441,18 @@ class MVAdapterVAEDecode:
             print(f"[MV-Adapter] Decoded tensor {i+1} - shape: {decoded_tensor.shape}, min: {decoded_tensor.min().item():.4f}, max: {decoded_tensor.max().item():.4f}")
             
             # Move to CPU immediately to free VRAM
-            decoded_images.append(decoded_tensor.cpu())
+            decoded_images.append(decoded_tensor.float().cpu())
             
             # Clear intermediate tensors
             del single_latent, decoded, decoded_tensor
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+        
+        # Restore VAE dtype if we upcasted
+        if needs_upcasting and original_dtype is not None:
+            print(f"[MV-Adapter] Restoring VAE to {original_dtype}")
+            vae.to(dtype=original_dtype)
         
         # Concatenate results
         output = torch.cat(decoded_images, dim=0)
