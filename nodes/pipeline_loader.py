@@ -93,7 +93,8 @@ class MVAdapterPipelineLoader:
                     "default": "SDXL",
                 }),
                 "torch_dtype": (["float16", "float32", "bfloat16"], {
-                    "default": "float16",
+                    "default": "bfloat16",
+                    "tooltip": "bfloat16 recommended for best quality. float16 uses less memory but may have precision issues.",
                 }),
                 "auto_download": ("BOOLEAN", {
                     "default": True,
@@ -102,7 +103,12 @@ class MVAdapterPipelineLoader:
             "optional": {
                 "vae_name": (get_vae_list(), {
                     "default": "none",
-                    "tooltip": "Optional: Select a VAE from models/vae folder. Use 'none' to use the model's built-in VAE.",
+                    "tooltip": "Select a VAE from models/vae folder, or use 'none' to use model's built-in VAE.",
+                }),
+                "vae_id": ("STRING", {
+                    "default": "madebyollin/sdxl-vae-fp16-fix",
+                    "multiline": False,
+                    "tooltip": "HuggingFace VAE model ID. Recommended: madebyollin/sdxl-vae-fp16-fix. Leave empty to use vae_name instead.",
                 }),
             }
         }
@@ -119,6 +125,7 @@ class MVAdapterPipelineLoader:
         torch_dtype: str,
         auto_download: bool = True,
         vae_name: str = "none",
+        vae_id: str = "",
     ) -> Tuple[Any, Any]:
         """Load the MV-Adapter pipeline."""
         from diffusers import AutoencoderKL
@@ -149,9 +156,23 @@ class MVAdapterPipelineLoader:
         if is_hf_model and auto_download:
             print(f"[MV-Adapter] Model will be downloaded from HuggingFace: {model_path}")
         
-        # Load VAE if specified
+        # Load VAE - priority: vae_id (HuggingFace) > vae_name (local file)
         vae = None
-        if vae_name and vae_name != "none":
+        
+        # First try HuggingFace VAE ID if provided
+        if vae_id and vae_id.strip() and "/" in vae_id:
+            print(f"[MV-Adapter] Loading VAE from HuggingFace: {vae_id}")
+            try:
+                vae = AutoencoderKL.from_pretrained(
+                    vae_id.strip(),
+                    torch_dtype=dtype,
+                )
+            except Exception as e:
+                print(f"[MV-Adapter] Failed to load VAE from HuggingFace: {e}")
+                vae = None
+        
+        # If no HF VAE, try local file
+        if vae is None and vae_name and vae_name != "none":
             # Find VAE file in ComfyUI's vae folder
             vae_path = None
             for vae_folder in folder_paths.get_folder_paths("vae"):
@@ -162,18 +183,10 @@ class MVAdapterPipelineLoader:
             
             if vae_path:
                 print(f"[MV-Adapter] Loading VAE from {vae_path}")
-                if vae_path.endswith('.safetensors'):
-                    # Load safetensors VAE
-                    vae = AutoencoderKL.from_single_file(
-                        vae_path,
-                        torch_dtype=dtype,
-                    )
-                else:
-                    # Load other formats
-                    vae = AutoencoderKL.from_single_file(
-                        vae_path,
-                        torch_dtype=dtype,
-                    )
+                vae = AutoencoderKL.from_single_file(
+                    vae_path,
+                    torch_dtype=dtype,
+                )
             else:
                 print(f"[MV-Adapter] Warning: VAE '{vae_name}' not found in vae folders")
         
