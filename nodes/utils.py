@@ -384,7 +384,14 @@ class MVAdapterVAEDecode:
             raise ValueError("[MV-Adapter VAE Decode] latents['samples'] is None")
         
         # Debug: print latent stats
-        print(f"[MV-Adapter] Latent stats - min: {samples.min().item():.4f}, max: {samples.max().item():.4f}, mean: {samples.mean().item():.4f}")
+        print(f"[MV-Adapter] Latent stats before scaling - min: {samples.min().item():.4f}, max: {samples.max().item():.4f}, mean: {samples.mean().item():.4f}")
+        
+        # Scale latents for VAE decode
+        # The pipeline outputs raw latents when output_type="latent", but VAE expects scaled latents
+        # SDXL VAE scaling_factor is 0.13025 - we need to divide by it before decode
+        scaling_factor = 0.13025
+        samples = samples / scaling_factor
+        print(f"[MV-Adapter] Latent stats after scaling (1/{scaling_factor}) - min: {samples.min().item():.4f}, max: {samples.max().item():.4f}")
         
         batch_size = samples.shape[0]
         
